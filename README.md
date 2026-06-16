@@ -1,240 +1,221 @@
 # RepoIntel
 
-**Repository Intelligence Engine** — a persistent, machine-readable memory layer
-for codebases that AI agents can consume.
+> Repository Intelligence Layer for AI Agents
 
-RepoIntel continuously analyzes a repository and builds a machine-readable
-understanding of its architecture, dependencies, conventions, relationships, and
-change impact. The goal is not documentation: it's a **persistent repository
-memory layer** that any AI agent can load in seconds instead of spending
-thousands of tokens exploring files.
+**Build repository understanding once. Let every AI agent reuse it.**
+
+RepoIntel analyzes source code and creates a persistent, machine-readable
+**repository memory** — architecture, dependencies, conventions, relationships,
+and change impact. Instead of every AI agent rediscovering your codebase from
+scratch, they consume RepoIntel's memory and become productive immediately.
 
 ```text
-Repository → RepoIntel Scanner → Repository Memory → Architecture Graph → MCP Server → AI Agents / Developers / CI
+Repository
+     ↓
+RepoIntel
+     ↓
+Repository Memory (.repointel/)
+     ↓
+MCP Server
+     ↓
+AI Agents / Developers / CI
 ```
 
-> On this repository, `repointel benchmark .` represents **~56k tokens of source
-> in a ~290-token context pack — roughly 190× compression**. Run it on yours.
+> **Pre-alpha (v0.0.1).** Every phase below is implemented and covered by the
+> test suite (89 passing tests), but interfaces may still change.
 
-## Purpose
+---
 
-Every time an AI agent opens an unfamiliar repository, it re-discovers the same
-things — the framework, the layout, the conventions, what depends on what —
-burning thousands of tokens and minutes of wall-clock before it can do useful
-work. And every new agent (or teammate) starts from zero.
+## Why?
 
-RepoIntel removes that tax. **Analyze a repository once**, and it produces a
-persistent, machine-readable memory layer (`.repointel/`) that any agent can load
-in seconds. It sits *between your source code and your AI agents* as a shared
-understanding they all consume.
+Every AI coding agent starts a session by exploring:
 
-**Use it to:**
+- README files
+- Project structure
+- Dependencies
+- Architecture
+- Coding conventions
 
-- **Onboard an agent instantly** — `get_context` hands over a whole repo's shape
-  (identity, layers, key files, conventions, dependencies, decisions, history)
-  in a few hundred tokens instead of a file-by-file crawl.
-- **Generate code that fits** — agents follow the repo's *actual* naming,
-  architecture, DI, and testing conventions (Phase 6), not generic defaults.
-- **Check blast radius before a change** — `impact <file>` predicts what a
-  refactor touches *before* you touch it (Phase 9).
-- **Answer architecture questions** — `explain <module>` describes purpose,
-  consumers, and risk with no LLM call (Phase 8).
-- **Preserve the *why*** — record architecture decisions that survive rebuilds
-  and travel with the repo (Phase 11).
+This process is repeated **every session, every model, every agent**. The result:
 
-**Who it's for:** AI coding agents (Claude, Codex, Gemini, …), developers
-onboarding to a new codebase, and CI systems that need a fast structural read.
+- ❌ Wasted tokens
+- ❌ Slower execution
+- ❌ Inconsistent understanding
+- ❌ Poorer architectural decisions
 
-## Status
+RepoIntel solves this by creating a persistent repository memory layer that
+agents can load instantly.
 
-🚧 **Phase 4 — Repository Memory.** `repointel build .` runs the full pipeline
-(fingerprint → inventory → graph → derived summaries) and writes the canonical
-`.repointel/` memory set — the source of truth an agent loads without
+## Before / After
+
+**Before RepoIntel**
+
+```text
+Agent
+  ↓ read README
+  ↓ explore folders
+  ↓ open dozens of files
+  ↓ infer architecture
+  ↓ start working
+
+Time: minutes · Tokens: thousands
+```
+
+**After RepoIntel**
+
+```text
+Agent
+  ↓ load RepoIntel memory
+  ↓ understand architecture
+  ↓ start working
+
+Time: seconds · Tokens: hundreds
+```
+
+## Benchmark
+
+Measured on this repository with `repointel benchmark .`:
+
+| | Tokens |
+|--|--|
+| Raw source | **~56,000** |
+| RepoIntel context pack | **~290** |
+| **Reduction** | **≈190×** |
+
+The ~290-token pack still conveys identity, layers, key files, conventions,
+dependencies, recorded decisions, and history — enough for an agent to start
+working immediately.
+
+## Features
+
+- 🔎 Repository fingerprinting (language, framework, build system)
+- 📦 Dependency & inventory analysis
+- 🕸️ Architecture graph generation (imports / calls / inheritance)
+- 🧠 Persistent repository memory (`.repointel/`)
+- 🔌 MCP integration (10 tools, any MCP agent)
+- 📐 Convention discovery (naming, DI, layering, patterns)
+- 💥 Change-impact analysis (blast radius before you edit)
+- 🗂️ Explanation engine (purpose / consumers / risk, no LLM)
+- 📚 Knowledge layer (architecture decisions + git history)
+- ⚡ Incremental updates (re-analyze only what changed)
+- 🧩 Multi-language plugin system (add languages, no core edits)
+- 🪶 Context-pack compression (~190× smaller than source)
+
+## Quick Start
+
+Requires **Python 3.12+** and [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync                        # install into a managed virtualenv
+uv run repointel analyze .     # what kind of project is this?
+uv run repointel build .       # build the full repository memory → .repointel/
+uv run repointel context .     # the compact, agent-ready understanding
+```
+
+That's the core loop. The full CLI:
+
+```bash
+uv run repointel scan .        # full inventory
+uv run repointel graph .       # architecture graph
+uv run repointel update .      # incremental refresh (only changed files)
+uv run repointel explain auth  # explain a module: purpose, consumers, risk
+uv run repointel impact base.py# predict the blast radius of changing a file
+uv run repointel knowledge .   # decisions, patterns, project history
+uv run repointel decide "Use uv" --why "fast, reproducible installs"
+uv run repointel benchmark .   # raw-vs-pack token savings
+uv run repointel serve .       # run the MCP server for AI agents
+uv run pytest                  # run the tests
+```
+
+## Repository Memory
+
+`repointel build .` writes the canonical memory set agents load without
 rescanning:
 
-| File | Contents |
-|------|----------|
-| `repo.json` | compact overview + manifest (fingerprint, counts, entry points) |
-| `repository.json` | full file/module/dependency inventory (Phase 2) |
-| `graph.json` | architecture graph: nodes + edges (Phase 3) |
-| `architecture.json` | style, layers, languages, frameworks, key (most-imported) files |
-| `modules.json` | per-module files, LOC, class/function counts, inter-module imports |
-| `conventions.json` | naming (files/classes/functions), source layout, dependency injection, layering, patterns, testing setup |
-| `knowledge.json` | architecture decisions (ADRs + recorded), inferred patterns, git history — the durable knowledge layer |
+```text
+.repointel/
+├── repo.json          # compact overview + manifest (fingerprint, counts, entry points)
+├── repository.json    # full file / module / dependency inventory
+├── graph.json         # architecture graph: nodes + edges
+├── architecture.json  # style, layers, languages, frameworks, key files
+├── modules.json       # per-module files, LOC, class/function counts, imports
+├── conventions.json   # naming, layout, dependency injection, patterns, testing
+└── knowledge.json     # architecture decisions, inferred patterns, git history
+```
 
-Python is parsed via the `ast` module; Dart via regex. Both ship as built-in
-plugins (see Phase 10); TypeScript and Java are scaffolded as scanner stubs, and
-new languages can be added as plugins without touching the core.
+| File | What it answers |
+|------|-----------------|
+| `repo.json` | What is this project, at a glance? |
+| `repository.json` | What files, modules, and dependencies exist? |
+| `graph.json` | What is connected to what? |
+| `architecture.json` | What is the system's shape and where are the hubs? |
+| `modules.json` | What does each module contain and import? |
+| `conventions.json` | How does this team write code? |
+| `knowledge.json` | Why is it built this way, and how has it evolved? |
 
-🚧 **Phase 5 — MCP Server.** `repointel serve .` runs an MCP server (stdio) that
-exposes the memory layer to AI agents via ten tools: `get_context`,
+(An internal `cache.json` also lives here to power incremental updates; it is not
+part of the agent-facing memory.)
+
+## Who Is This For?
+
+**AI agents** — Claude Code, Codex, Gemini, Cline, Roo Code, and any MCP client.
+Load the whole repo's understanding in one `get_context` call.
+
+**Developers** — faster onboarding, instant architecture overviews, and
+impact analysis before refactors.
+
+**Teams** — a shared repository memory and preserved architectural decisions
+that travel with the code.
+
+**CI/CD systems** — fast structural analysis and automated architecture checks.
+
+## Connecting AI agents (MCP)
+
+`repointel serve <path>` is a standard **stdio MCP server**. Once connected, an
+agent has these tools (start with **`get_context`**): `get_context`,
 `get_project_summary`, `get_architecture`, `get_conventions`, `get_knowledge`,
 `get_module_info`, `get_dependencies`, `get_critical_files`, `explain_module`,
-and `analyze_impact`. Memory is built automatically on first request.
+`analyze_impact`. Memory is built on the first call and reused afterward.
 
-🚧 **Phase 6 — Convention Discovery.** `conventions.json` is deepened so agents
-write code the way the team already does: identifier-casing for classes and
-functions is inferred from the graph, the dependency-injection / wiring
-framework is detected from dependencies, and recurring layer directories (e.g.
-`domain`/`data`/`presentation`) and the structural patterns they imply
-(`repository_pattern`, `service_layer`, …) are surfaced. Exposed over MCP via
-`get_conventions`.
+In normal use your agent spawns the server and shuts it down automatically. To
+run it by hand for a smoke test: `uv run repointel serve /path/to/repo`
+(`Ctrl+C` to stop; background processes: `pkill -f "repointel serve"`).
 
-🚧 **Phase 7 — Incremental Intelligence.** `repointel update .` refreshes memory
-by re-reading and re-parsing only the source files whose `(size, mtime)`
-signature changed since the last build — everything else is reused from
-`.repointel/cache.json`. Pure edits to existing files take a fast path that
-reuses cached parsed IR; adding or deleting a parseable file falls back to a
-full parse (still correct). The result is always identical to a from-scratch
-`build`. `cache.json` is an internal optimization and is not part of the
-agent-facing manifest.
+Use an **absolute path** for the repo in each config below.
 
-🚧 **Phase 8 — Explanation Engine.** `repointel explain <module>` generates a
-structured, **LLM-free** explanation straight from memory: a purpose sentence
-(inferred from structure + naming conventions), what the module depends on, who
-depends on it, its most-critical files, its blast radius (transitive
-dependents), and a derived risk level for changing it. Exposed over MCP via
-`explain_module`.
+<details>
+<summary><b>Claude Code</b></summary>
 
-🚧 **Phase 9 — Change Impact Analysis.** `repointel impact <file>` predicts the
-consequences of editing a file *before* you touch it: it walks `imports` edges
-backwards to find every file that transitively depends on it (the blast radius),
-the modules they span, what the file itself depends on, and a risk level. Useful
-right before a refactor. Exposed over MCP via `analyze_impact`.
-
-🚧 **Phase 10 — Multi-Language Plugin Ecosystem.** Language support is now a
-plugin: a `LanguagePlugin` bundles a `Scanner` (ecosystem detection) and a
-`Parser` (source → graph IR), and the scanners and graph builder dispatch
-through a registry instead of hardcoded branches. Third-party packages register
-via the `repointel.plugins` entry-point group — installing one teaches RepoIntel
-a new language with **no core changes**. See the [authoring guide](docs/plugins.md)
-and the worked [Go example](plugins/go/).
-
-🚧 **Phase 11 — Knowledge Layer.** `knowledge.json` gives the repository
-long-term memory beyond structure: **decisions** (discovered from ADR markdown
-files, plus ones you record with `repointel decide "…" --why "…"`),
-**patterns** (inferred from the conventions and architecture), and **history**
-(commits, contributors, timeline from git). Recorded decisions are durable —
-they survive every rebuild. View it with `repointel knowledge .`; exposed over
-MCP via `get_knowledge`.
-
-🚧 **Phase 12 — Repository Intelligence Platform.** The payoff: `repointel
-context .` emits a **context pack** — a whole repository's understanding
-(identity, key files, layers, conventions, dependencies, decisions, history) in
-a few thousand tokens, the most token-efficient way for an agent to get oriented.
-`repointel benchmark .` measures the win against reading raw source. On this
-repository the pack represents **~56k tokens of source in ~290 tokens — a ~190×
-compression**. Exposed over MCP via `get_context` (the recommended starting
-tool).
-
-## Requirements
-
-- Python 3.12+
-- [uv](https://docs.astral.sh/uv/)
-
-## Quickstart
-
-```bash
-# Install dependencies into a managed virtual environment
-uv sync
-
-# Run the CLI
-uv run repointel --help
-uv run repointel --version
-uv run repointel analyze .          # Phase 1: fingerprint
-uv run repointel scan .             # Phase 2: full inventory → .repointel/repository.json
-uv run repointel scan . --json      # emit the inventory as JSON
-uv run repointel graph .            # Phase 3: architecture graph → .repointel/graph.json
-uv run repointel build .            # Phase 4: full repository memory → .repointel/
-uv run repointel update .           # Phase 7: refresh memory, re-analyzing only changed files
-uv run repointel explain auth       # Phase 8: explain a module (purpose, consumers, risk)
-uv run repointel impact base.py     # Phase 9: predict the blast radius of changing a file
-uv run repointel knowledge .        # Phase 11: decisions, patterns, and project history
-uv run repointel decide "Use uv"    # Phase 11: record an architecture decision (--why ...)
-uv run repointel context .          # Phase 12: compact context pack (pipe into an agent)
-uv run repointel benchmark .        # Phase 12: measure raw-vs-pack token savings
-uv run repointel serve .            # Phase 5: run the MCP server (stdio) for AI agents
-
-# Run the tests
-uv run pytest
-```
-
-## Running the MCP server
-
-`repointel serve <path>` starts an MCP server that speaks the protocol over
-**stdio** — stdout carries the MCP messages, stderr carries status logs:
-
-```bash
-uv run repointel serve /path/to/your/repo
-```
-
-In normal use you don't run this by hand: your AI agent (the MCP *client*)
-spawns the process when it connects and shuts it down when it disconnects — see
-[Connecting AI agents](#connecting-ai-agents). Running it manually is useful only
-to smoke-test that it starts — you'll see a `RepoIntel MCP server · <path>`
-banner on stderr, and with no client attached it just waits for input.
-
-Memory is built automatically on the first tool call and reused afterward.
-
-### Stopping the server
-
-- **Foreground:** press `Ctrl+C`.
-- **Spawned by an agent:** it stops automatically when the agent disconnects —
-  nothing to do.
-- **Background / stuck process:** `pkill -f "repointel serve"`, or find the PID
-  with `ps aux | grep "repointel serve"` and `kill <pid>`.
-
-## Connecting AI agents
-
-The server is a standard stdio MCP server, so any MCP-capable agent can use it.
-Every config has the same shape — run `repointel serve` pointed at the repo you
-want it to understand. Use an **absolute path** for `/path/to/your/repo`.
-
-Once connected, the agent has these tools (start with **`get_context`**):
-`get_context`, `get_project_summary`, `get_architecture`, `get_conventions`,
-`get_knowledge`, `get_module_info`, `get_dependencies`, `get_critical_files`,
-`explain_module`, `analyze_impact`.
-
-### Claude Code
-
-Project-scoped — create a `.mcp.json` in the repo root:
+Project-scoped — create `.mcp.json` in the repo root, then run `/mcp` to approve:
 
 ```json
 {
   "mcpServers": {
-    "repointel": {
-      "command": "uv",
-      "args": ["run", "repointel", "serve", "/path/to/your/repo"]
-    }
+    "repointel": { "command": "uv", "args": ["run", "repointel", "serve", "/path/to/your/repo"] }
   }
 }
 ```
 
-…or add it from the CLI:
+Or: `claude mcp add repointel -- uv run repointel serve /path/to/your/repo`
+</details>
 
-```bash
-claude mcp add repointel -- uv run repointel serve /path/to/your/repo
-```
+<details>
+<summary><b>Claude Desktop</b></summary>
 
-Then run `/mcp` inside Claude Code to approve and verify the connection.
-
-### Claude Desktop
-
-Open **Settings → Developer → Edit Config** (`claude_desktop_config.json`) and
-add the server under `mcpServers`, then restart Claude Desktop:
+Settings → Developer → Edit Config (`claude_desktop_config.json`), add under
+`mcpServers`, then restart:
 
 ```json
 {
   "mcpServers": {
-    "repointel": {
-      "command": "uv",
-      "args": ["run", "repointel", "serve", "/path/to/your/repo"]
-    }
+    "repointel": { "command": "uv", "args": ["run", "repointel", "serve", "/path/to/your/repo"] }
   }
 }
 ```
+</details>
 
-### OpenAI Codex (Codex CLI)
+<details>
+<summary><b>OpenAI Codex (CLI)</b></summary>
 
 Add to `~/.codex/config.toml`:
 
@@ -243,123 +224,105 @@ Add to `~/.codex/config.toml`:
 command = "uv"
 args = ["run", "repointel", "serve", "/path/to/your/repo"]
 ```
+</details>
 
-### Gemini CLI
+<details>
+<summary><b>Gemini CLI</b></summary>
 
 Add to `~/.gemini/settings.json` (or a project-level `.gemini/settings.json`):
 
 ```json
 {
   "mcpServers": {
-    "repointel": {
-      "command": "uv",
-      "args": ["run", "repointel", "serve", "/path/to/your/repo"]
-    }
+    "repointel": { "command": "uv", "args": ["run", "repointel", "serve", "/path/to/your/repo"] }
   }
 }
 ```
+</details>
 
-### Any other MCP client
+<details>
+<summary><b>Any other MCP client / Docker</b></summary>
 
-Configure a **stdio** server with command `uv` and args
-`["run", "repointel", "serve", "/path/to/your/repo"]`. If `repointel` is
-installed on the PATH (e.g. `uv tool install .` or `pipx install`), drop the
-`uv run` wrapper: command `repointel`, args `["serve", "/path/to/your/repo"]`.
+Configure a stdio server with command `uv`, args
+`["run", "repointel", "serve", "/path/to/your/repo"]`. If `repointel` is on the
+PATH (`uv tool install .`), drop `uv run`.
 
-## Running in a container
-
-A container isolates RepoIntel from your host Python. Build an image from this
-repo:
-
-```dockerfile
-# Dockerfile
-FROM python:3.12-slim
-RUN pip install --no-cache-dir uv
-WORKDIR /app
-COPY . /app
-RUN uv sync --frozen
-ENTRYPOINT ["uv", "run", "repointel"]
-```
-
-```bash
-docker build -t repointel .
-```
-
-Run one-off commands against a mounted repo (it writes `.repointel/` back into
-the mount, so the bind must be read-write):
-
-```bash
-docker run --rm -v /path/to/your/repo:/repo repointel build /repo
-docker run --rm -v /path/to/your/repo:/repo repointel context /repo
-```
-
-**As an MCP server inside a container**, the agent spawns `docker` — note the
-`-i`, which keeps stdin open for the stdio stream:
+In a container (note `-i` for stdio):
 
 ```json
 {
   "mcpServers": {
     "repointel": {
       "command": "docker",
-      "args": [
-        "run", "--rm", "-i",
-        "-v", "/path/to/your/repo:/repo",
-        "repointel", "serve", "/repo"
-      ]
+      "args": ["run", "--rm", "-i", "-v", "/path/to/your/repo:/repo", "repointel", "serve", "/repo"]
     }
   }
 }
 ```
 
-`--rm` removes the container on disconnect; `-i` is required for stdio.
+Build the image first: `docker build -t repointel .` (see the [`Dockerfile`](Dockerfile)).
+</details>
+
+## Current Status
+
+RepoIntel is built out through all 12 development phases — each row below is
+implemented and tested.
+
+| Phase | Feature | Status |
+|------:|---------|:------:|
+| 0 | Foundation | ✅ |
+| 1 | Fingerprinting | ✅ |
+| 2 | Scanner | ✅ |
+| 3 | Graph Engine | ✅ |
+| 4 | Repository Memory | ✅ |
+| 5 | MCP Server | ✅ |
+| 6 | Convention Discovery | ✅ |
+| 7 | Incremental Intelligence | ✅ |
+| 8 | Explanation Engine | ✅ |
+| 9 | Change Impact Analysis | ✅ |
+| 10 | Plugin Ecosystem | ✅ |
+| 11 | Knowledge Layer | ✅ |
+| 12 | Repository Intelligence Platform | ✅ |
+
+First analyzer targets: **Python** and **Flutter/Dart**. New languages are added
+as plugins — see the [plugin authoring guide](docs/plugins.md).
 
 ## Project layout
 
-The engine follows a clean-architecture layout — inner layers (`models`) know
-nothing about outer layers (`cli`, `mcp`):
+Clean-architecture layout — inner layers (`models`) know nothing about outer
+layers (`cli`, `mcp`):
 
 ```text
 src/repointel/
-├── cli/            # Delivery: Typer app + commands/
-├── scanners/       # Per-language analysis: python/ dart/ typescript/ java/
-├── graph/          # Architecture graph: builder/ traversal/ impact/   (Phase 3+)
-├── context/        # Understanding: architecture/ summary/ compression/
-├── storage/        # Persistence: json/ sqlite/                        (Phase 4+)
-├── mcp/            # MCP server for AI agents                          (Phase 5)
-└── models/         # Domain entities (Fingerprint, ...)
+├── cli/         # Typer app + commands/
+├── scanners/    # Per-language ecosystem detection
+├── graph/       # Architecture graph: builder/ traversal/ impact/
+├── context/     # Understanding: conventions, explanation, knowledge, compression
+├── plugins/     # Multi-language plugin registry + built-ins
+├── storage/     # Persistence (.repointel/ JSON)
+├── mcp/         # MCP server + tools
+└── models/      # Domain entities
 ```
 
-Supporting top-level dirs: `tests/`, `docs/`, `examples/`, `plugins/`,
-`.github/workflows/`.
+## Contributing
 
-## Roadmap
-
-| Phase | Title | Status |
-|------:|-------|--------|
-| 0 | Project Foundation | ✅ done |
-| 1 | Repository Fingerprinting | ✅ Python + Flutter/Dart |
-| 2 | Repository Scanner | ✅ inventory → `.repointel/repository.json` |
-| 3 | Architecture Graph Engine | ✅ graph → `.repointel/graph.json` |
-| 4 | Repository Memory | ✅ `repointel build` → full `.repointel/` set |
-| 5 | MCP Server | ✅ `repointel serve` — 10 MCP tools |
-| 6 | Convention Discovery | ✅ `get_conventions` |
-| 7 | Incremental Intelligence | ✅ `repointel update` |
-| 8 | Explanation Engine | ✅ `repointel explain` |
-| 9 | Change Impact Analysis | ✅ `repointel impact` |
-| 10 | Multi-Language Plugin Ecosystem | ✅ entry-point plugins |
-| 11 | Knowledge Layer | ✅ `repointel knowledge` / `decide` |
-| 12 | Repository Intelligence Platform | ✅ `repointel context` / `benchmark` |
-
-First analyzer targets: **Python** and **Flutter/Dart**.
+Contributions and ideas are welcome — adding a language is as simple as shipping
+a plugin (no core changes). Start with [docs/plugins.md](docs/plugins.md).
 
 ## Author
 
 **Sadique Iqbal** — AI and mobile app developer.
-
 📧 [sadiqueiqbal.si@gmail.com](mailto:sadiqueiqbal.si@gmail.com)
-
-Issues, ideas, and contributions are welcome.
 
 ## License
 
-Apache-2.0
+[Apache-2.0](LICENSE)
+
+## Vision
+
+Git became the source of truth for code.
+
+**RepoIntel aims to become the source of truth for repository _understanding_.**
+
+> Analyze once. Understand forever.
+> Let every AI agent reuse the same repository intelligence.
