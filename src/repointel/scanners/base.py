@@ -34,6 +34,17 @@ IGNORED_DIRS: frozenset[str] = frozenset(
         ".repointel",
         "vendor",
         "target",
+        # iOS / macOS / Flutter / Android native + vendored build trees. Without
+        # these, a Flutter app's bundled C/C++/Swift (the engine SDK, CocoaPods,
+        # symlinked plugins) swamps the actual Dart source.
+        "Pods",
+        ".symlinks",
+        "ephemeral",
+        "DerivedData",
+        "Carthage",
+        ".fvm",
+        ".cxx",
+        ".gradle",
     }
 )
 

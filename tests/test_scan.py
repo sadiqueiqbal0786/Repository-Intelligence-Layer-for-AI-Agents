@@ -129,6 +129,28 @@ dev_dependencies:
     assert "lib/main.dart" in inv.entry_points
 
 
+def test_flutter_native_dirs_ignored(tmp_path: Path) -> None:
+    """A Flutter app's vendored native trees must not swamp the Dart source."""
+    _write(tmp_path, "pubspec.yaml", "name: app\ndependencies:\n  flutter:\n    sdk: flutter\n")
+    _write(tmp_path, "lib/main.dart", "void main() {}\n")
+    _write(tmp_path, "lib/widgets/home.dart", "class Home {}\n")
+    # Vendored / native noise that must be excluded.
+    _write(tmp_path, "ios/Pods/Firebase/firebase.c", "int x;\n")
+    _write(tmp_path, "ios/.symlinks/plugins/foo/foo.swift", "let x = 1\n")
+    _write(tmp_path, "ios/Flutter/ephemeral/engine.cpp", "int y;\n")
+    _write(tmp_path, ".fvm/flutter_sdk/engine/core.cc", "int z;\n")
+
+    inv = scan_repo(tmp_path)
+    paths = {f.path for f in inv.files}
+
+    assert "lib/main.dart" in paths
+    assert not any("Pods" in p or ".symlinks" in p or "ephemeral" in p for p in paths)
+    assert not any(p.startswith(".fvm") for p in paths)
+    # Dart is the only source language counted -> it's the primary language.
+    assert inv.fingerprint.language == "Dart"
+    assert set(inv.fingerprint.languages) == {"Dart"}
+
+
 def test_storage_round_trip(tmp_path: Path) -> None:
     _python_repo(tmp_path)
     inv = scan_repo(tmp_path)
