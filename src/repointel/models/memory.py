@@ -1,0 +1,104 @@
+"""Repository-memory entities (Phase 4).
+
+These are the derived, agent-consumable artifacts written under ``.repointel/``:
+``repo.json`` (overview), ``architecture.json``, ``modules.json``, and
+``conventions.json``. Together with ``repository.json`` (inventory) and
+``graph.json`` (graph) they form the repository's permanent memory layer.
+"""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+from repointel.models.fingerprint import Fingerprint
+
+SCHEMA_VERSION = 1
+
+
+class LayerSummary(BaseModel):
+    """A logical layer (top-level grouping of modules)."""
+
+    name: str
+    modules: list[str] = Field(default_factory=list)
+    file_count: int = 0
+
+
+class ArchitectureSummary(BaseModel):
+    """``architecture.json`` — the shape of the system at a glance."""
+
+    style: str | None = None
+    languages: dict[str, int] = Field(default_factory=dict)
+    framework: str | None = None
+    state_management: str | None = None
+    navigation: str | None = None
+    databases: list[str] = Field(default_factory=list)
+    layers: list[LayerSummary] = Field(default_factory=list)
+    key_files: list[str] = Field(
+        default_factory=list, description="Most-imported files (highest in-degree)."
+    )
+    module_count: int = 0
+    node_count: int = 0
+    edge_count: int = 0
+
+
+class ModuleSummary(BaseModel):
+    path: str
+    language: str | None = None
+    file_count: int = 0
+    loc: int = 0
+    classes: int = 0
+    functions: int = 0
+    files: list[str] = Field(default_factory=list)
+    imports: list[str] = Field(
+        default_factory=list, description="Other module paths this module imports."
+    )
+
+
+class ModulesDoc(BaseModel):
+    """``modules.json`` — per-module breakdown."""
+
+    path: str
+    modules: list[ModuleSummary] = Field(default_factory=list)
+
+
+class TestingConvention(BaseModel):
+    framework: str | None = None
+    test_dir: str | None = None
+    test_count: int = 0
+
+
+class Conventions(BaseModel):
+    """``conventions.json`` — how the team writes code (deepened in Phase 6)."""
+
+    architecture: str | None = None
+    source_layout: str | None = None  # "src" | "lib" | "flat"
+    package_manager: str | None = None
+    build_system: str | None = None
+    file_naming: str | None = None  # "snake_case" | "kebab-case" | "camelCase" | "mixed"
+    testing: TestingConvention = Field(default_factory=TestingConvention)
+
+
+class RepoSummary(BaseModel):
+    """``repo.json`` — the small, loadable overview / manifest."""
+
+    schema_version: int = SCHEMA_VERSION
+    path: str
+    name: str
+    fingerprint: Fingerprint
+    file_count: int = 0
+    module_count: int = 0
+    dependency_count: int = 0
+    total_loc: int = 0
+    node_count: int = 0
+    edge_count: int = 0
+    entry_points: list[str] = Field(default_factory=list)
+    artifacts: list[str] = Field(default_factory=list)
+
+
+class RepositoryMemory(BaseModel):
+    """In-memory bundle of every artifact, returned by the memory loader."""
+
+    repo: RepoSummary
+    architecture: ArchitectureSummary
+    modules: ModulesDoc
+    conventions: Conventions

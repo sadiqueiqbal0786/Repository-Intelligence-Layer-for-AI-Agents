@@ -1,0 +1,54 @@
+[project]
+name = "repointel"
+version = "0.0.1"
+description = "Repository Intelligence Engine — a persistent, machine-readable memory layer for codebases that AI agents can consume."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [{ name = "RepoIntel contributors" }]
+keywords = ["ai", "agents", "code-analysis", "repository", "mcp", "architecture"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "typer>=0.12",
+    "pydantic>=2.7",
+    "rich>=13.7",
+]
+
+[project.urls]
+Homepage = "https://github.com/repointel/repointel"
+Repository = "https://github.com/repointel/repointel"
+
+[project.scripts]
+repointel = "repointel.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "ruff>=0.5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/repointel"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# B008: Typer relies on function calls (typer.Argument/Option) in defaults.
+ignore = ["B008"]
