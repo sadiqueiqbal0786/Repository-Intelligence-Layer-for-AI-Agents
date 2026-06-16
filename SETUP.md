@@ -203,6 +203,46 @@ args = ["serve", "/abs/path/to/project"]
 
 Configure a **stdio** server with the `command`/`args` from the table above.
 
+### Adding alongside an existing MCP server
+
+MCP configs hold a **map of servers keyed by name**, so adding RepoIntel never
+replaces what's already there — you add a `repointel` entry next to the others.
+The one rule: **merge, don't overwrite**, and keep names unique.
+
+JSON clients (Claude Code, Claude Desktop, Gemini) — add the key inside the
+existing `mcpServers` object:
+
+```json
+{
+  "mcpServers": {
+    "existing-server": { "command": "...", "args": ["..."] },
+    "repointel": { "command": "repointel", "args": ["serve", "/abs/path/to/project"] }
+  }
+}
+```
+
+Codex (TOML) — add another table; existing ones stay:
+
+```toml
+[mcp_servers.existing_server]
+command = "..."
+
+[mcp_servers.repointel]
+command = "repointel"
+args = ["serve", "/abs/path/to/project"]
+```
+
+**Safest for Claude Code** — let the CLI merge it for you (it appends, never
+touches existing servers):
+
+```bash
+claude mcp add repointel -- repointel serve /abs/path/to/project
+```
+
+The agent then lists **both** servers; their tools coexist (RepoIntel's are
+namespaced, so no clashes). The only thing to avoid is a duplicate server *name*
+— if something is already called `repointel`, rename one.
+
 ### Verify the connection
 
 In your agent, list MCP servers (e.g. `/mcp` in Claude Code) — `repointel`
