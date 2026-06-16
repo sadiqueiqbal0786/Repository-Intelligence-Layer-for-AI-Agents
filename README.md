@@ -112,6 +112,10 @@ uv run repointel build .       # build the full repository memory → .repointel
 uv run repointel context .     # the compact, agent-ready understanding
 ```
 
+> 📘 **New here?** [**SETUP.md**](SETUP.md) is a full step-by-step guide —
+> local, global (`repointel` everywhere), container, and MCP-server setup for
+> Claude / Codex / Gemini.
+
 That's the core loop. The full CLI:
 
 ```bash
@@ -306,8 +310,9 @@ src/repointel/
 
 ## Contributing
 
-Contributions and ideas are welcome — adding a language is as simple as shipping
-a plugin (no core changes). Start with [docs/plugins.md](docs/plugins.md).
+Contributions and ideas are welcome. Get your environment running with
+[SETUP.md](SETUP.md), then — adding a language is as simple as shipping a plugin
+(no core changes) — start with [docs/plugins.md](docs/plugins.md).
 
 ## Author
 

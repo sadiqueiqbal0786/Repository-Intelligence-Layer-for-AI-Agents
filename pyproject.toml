@@ -22,8 +22,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/repointel/repointel"
-Repository = "https://github.com/repointel/repointel"
+Homepage = "https://github.com/sadiqueiqbal0786/Repository-Intelligence-Layer-for-AI-Agents"
+Repository = "https://github.com/sadiqueiqbal0786/Repository-Intelligence-Layer-for-AI-Agents"
 
 [project.scripts]
 repointel = "repointel.cli:app"
