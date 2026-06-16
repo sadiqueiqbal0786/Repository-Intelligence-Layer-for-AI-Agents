@@ -5,6 +5,7 @@ RepositoryInventory (Phase 2), sharing a single :class:`RepoContext` walk.
 from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
 from repointel.context.architecture import detect_architecture
 from repointel.models import (
@@ -15,7 +16,9 @@ from repointel.models import (
     RepositoryInventory,
 )
 from repointel.scanners.base import CODE_EXTENSIONS, RepoContext
-from repointel.scanners.registry import SCANNERS
+
+if TYPE_CHECKING:
+    from repointel.scanners.base import Scanner
 
 # Well-known configuration files, matched by basename anywhere in the tree.
 CONFIG_FILENAMES: frozenset[str] = frozenset(
@@ -56,6 +59,13 @@ CONFIG_FILENAMES: frozenset[str] = frozenset(
 )
 
 
+def _scanners() -> list[Scanner]:
+    """Active ecosystem scanners from the plugin registry (Phase 10)."""
+    from repointel.plugins import default_registry
+
+    return default_registry().scanners()
+
+
 def _apply_fingerprint(ctx: RepoContext, fp: Fingerprint) -> None:
     """Populate ``fp`` from the language scan, matching scanners, and architecture."""
     stats = ctx.language_stats()
@@ -64,7 +74,7 @@ def _apply_fingerprint(ctx: RepoContext, fp: Fingerprint) -> None:
         primary = next(iter(fp.languages))
         fp.set("language", primary, f"{fp.languages[primary]} source files")
 
-    for scanner in SCANNERS:
+    for scanner in _scanners():
         if scanner.matches(ctx):
             scanner.fingerprint(ctx, fp)
 
@@ -79,8 +89,12 @@ def fingerprint_repo(root: Path) -> Fingerprint:
     return fp
 
 
-def scan_repo(root: Path) -> RepositoryInventory:
-    """Build a complete inventory of ``root`` (Phase 2)."""
+def scan_repo(root: Path, *, loc_cache: dict[str, int] | None = None) -> RepositoryInventory:
+    """Build a complete inventory of ``root`` (Phase 2).
+
+    ``loc_cache`` (Phase 7) maps repo-relative paths to a previously counted line
+    total for files known to be unchanged; those files skip the read + recount.
+    """
     ctx = RepoContext(Path(root))
     fp = Fingerprint(path=str(ctx.root))
     _apply_fingerprint(ctx, fp)
@@ -91,10 +105,13 @@ def scan_repo(root: Path) -> RepositoryInventory:
         lang = CODE_EXTENSIONS.get(PurePosixPath(rel).suffix.lower())
         loc = 0
         if lang:
-            text = ctx.read_text(rel)
-            if text:
-                loc = text.count("\n") + (0 if text.endswith("\n") else 1)
-                total_loc += loc
+            if loc_cache is not None and rel in loc_cache:
+                loc = loc_cache[rel]
+            else:
+                text = ctx.read_text(rel)
+                if text:
+                    loc = text.count("\n") + (0 if text.endswith("\n") else 1)
+            total_loc += loc
         files.append(FileEntry(path=rel, language=lang, size=size, loc=loc))
     files.sort(key=lambda f: f.path)
 
@@ -104,7 +121,7 @@ def scan_repo(root: Path) -> RepositoryInventory:
 
     dependencies: list[Dependency] = []
     entry_points: list[str] = []
-    for scanner in SCANNERS:
+    for scanner in _scanners():
         if scanner.matches(ctx):
             dependencies.extend(scanner.dependencies(ctx))
             entry_points.extend(scanner.entry_points(ctx))

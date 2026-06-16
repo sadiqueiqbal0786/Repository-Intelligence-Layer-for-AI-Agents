@@ -1,9 +1,10 @@
-"""The scanner registry.
+"""The built-in scanner list.
 
-For Phase 1/2 this is a static list of implemented scanners. Phase 10 will load
-third-party scanners here (e.g. via entry points) without touching the
-orchestrator. TypeScript/Java exist as stubs and join the list once their
-detection logic lands.
+The orchestrator now sources scanners from the Phase 10 plugin registry
+(:func:`repointel.plugins.default_registry`), which also discovers third-party
+scanners via entry points. This list remains the canonical set of built-in
+scanners and a stable import for callers that want them directly.
+TypeScript/Java exist as stubs and join once their detection logic lands.
 """
 
 from __future__ import annotations

@@ -82,13 +82,33 @@ def test_conventions(tmp_path: Path) -> None:
     assert conv.testing.test_dir == "tests"
     assert conv.testing.test_count == 1
 
+    # Phase 6: identifier-casing inferred from the graph.
+    assert conv.naming.files == "snake_case"
+    assert conv.naming.classes == "PascalCase"  # Base, User
+    assert conv.naming.functions == "snake_case"  # make, test_ok
+    # FastAPI is a dependency -> dependency injection wiring.
+    assert conv.dependency_injection == "FastAPI"
+    assert "dependency_injection" in conv.patterns
+
+
+def test_conventions_detects_layering_and_patterns(tmp_path: Path) -> None:
+    _write(tmp_path, "pyproject.toml", '[project]\nname = "demo"\n')
+    _write(tmp_path, "src/demo/domain/entities.py", "class Order:\n    pass\n")
+    _write(tmp_path, "src/demo/data/repositories.py", "class OrderRepository:\n    pass\n")
+    _write(tmp_path, "src/demo/presentation/controllers.py", "class OrderController:\n    pass\n")
+
+    conv = build_memory(tmp_path).conventions
+    assert {"data", "domain", "presentation"} <= set(conv.layering)
+    assert "repository_pattern" in conv.patterns
+    assert "controller_layer" in conv.patterns
+
 
 def test_persist_and_load(tmp_path: Path) -> None:
     _python_project(tmp_path)
     bundle = build_memory(tmp_path)
     written = persist_memory(bundle, tmp_path)
 
-    # All six artifacts written under .repointel/.
+    # All seven memory artifacts + the internal incremental cache (Phase 7).
     names = {p.name for p in written}
     assert names == {
         "repository.json",
@@ -97,7 +117,12 @@ def test_persist_and_load(tmp_path: Path) -> None:
         "architecture.json",
         "modules.json",
         "conventions.json",
+        "knowledge.json",
+        "cache.json",
     }
+    # cache.json is an optimization, not agent-facing memory: kept out of the manifest.
+    assert "cache.json" not in bundle.repo.artifacts
+    assert "knowledge.json" in bundle.repo.artifacts
     assert all(p.exists() for p in written)
     assert all(p.parent == memory_dir(tmp_path) for p in written)
 

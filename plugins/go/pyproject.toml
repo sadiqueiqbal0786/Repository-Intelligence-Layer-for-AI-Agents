@@ -1,0 +1,22 @@
+# Example packaging for a RepoIntel community plugin.
+#
+# Installing this package registers the Go plugin with RepoIntel automatically
+# via the `repointel.plugins` entry-point group — no core changes required.
+[project]
+name = "repointel-go"
+version = "0.0.1"
+description = "Go language plugin for RepoIntel (example)."
+requires-python = ">=3.12"
+dependencies = ["repointel"]
+
+# The discovery contract: one entry point in the `repointel.plugins` group whose
+# value resolves to a LanguagePlugin (or a zero-arg callable returning one).
+[project.entry-points."repointel.plugins"]
+go = "repointel_go:go_plugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["repointel_go"]

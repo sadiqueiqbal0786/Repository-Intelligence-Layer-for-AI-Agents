@@ -8,6 +8,7 @@ import typer
 from rich.console import Console
 
 from repointel.context.memory import build_memory, persist_memory
+from repointel.models import Conventions
 
 console = Console()
 
@@ -33,6 +34,8 @@ def build(
     )
     console.print(f"  graph: {repo.node_count} nodes, {repo.edge_count} edges\n")
 
+    _render_conventions(bundle.conventions)
+
     console.print("[green]✓[/] Wrote repository memory:")
     base = Path(bundle.repo.path)
     for out in written:
@@ -41,3 +44,25 @@ def build(
         except ValueError:
             shown = out
         console.print(f"    [dim]{shown}[/]")
+
+
+def _render_conventions(conv: Conventions) -> None:
+    """Show the headline conventions discovered for the repo (Phase 6)."""
+    rows: list[tuple[str, str | None]] = [
+        ("Architecture", conv.architecture),
+        ("Source layout", conv.source_layout),
+        ("File naming", conv.naming.files),
+        ("Class naming", conv.naming.classes),
+        ("Function naming", conv.naming.functions),
+        ("Dependency injection", conv.dependency_injection),
+        ("Testing", conv.testing.framework),
+        ("Layering", ", ".join(conv.layering) if conv.layering else None),
+        ("Patterns", ", ".join(conv.patterns) if conv.patterns else None),
+    ]
+    shown = [(label, value) for label, value in rows if value]
+    if not shown:
+        return
+    console.print("[bold]Conventions[/]")
+    for label, value in shown:
+        console.print(f"  [dim]{label}:[/] [green]{value}[/]")
+    console.print()

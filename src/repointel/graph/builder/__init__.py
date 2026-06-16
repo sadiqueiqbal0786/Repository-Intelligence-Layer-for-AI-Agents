@@ -7,39 +7,85 @@ global indices once all nodes exist.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from repointel.graph.builder.dart import DartImportResolver, parse_dart_file
 from repointel.graph.builder.parsed import ParsedFile, ParsedFunction
-from repointel.graph.builder.python import PyImportResolver, parse_python_file
 from repointel.models import ArchitectureGraph, GraphEdge, GraphNode, RepositoryInventory
 
-_PARSED_LANGUAGES = {"Python", "Dart"}
+if TYPE_CHECKING:
+    from repointel.plugins import PluginRegistry
 
 
-def build_graph(root: Path, inventory: RepositoryInventory) -> ArchitectureGraph:
-    """Build the architecture graph for ``root`` from its inventory."""
+def build_graph(
+    root: Path,
+    inventory: RepositoryInventory,
+    *,
+    parse_cache: dict[str, ParsedFile] | None = None,
+    registry: PluginRegistry | None = None,
+) -> ArchitectureGraph:
+    """Build the architecture graph for ``root`` from its inventory.
+
+    ``parse_cache`` (Phase 7) maps repo-relative paths to already-parsed IR for
+    files known to be unchanged; those files skip the read + parse step.
+    ``registry`` (Phase 10) supplies the language parsers; defaults to the
+    process-wide plugin registry.
+    """
+    parsed = parse_sources(root, inventory, parse_cache=parse_cache, registry=registry)
+    return assemble_graph(inventory, parsed)
+
+
+def parse_sources(
+    root: Path,
+    inventory: RepositoryInventory,
+    *,
+    parse_cache: dict[str, ParsedFile] | None = None,
+    registry: PluginRegistry | None = None,
+) -> list[ParsedFile]:
+    """Parse every parseable source file into the :mod:`parsed` IR.
+
+    A parser is looked up per file language via the plugin registry (Phase 10),
+    so new languages are added as plugins, not as branches here. Reuses
+    ``parse_cache`` entries for unchanged files; reads and parses the rest. The
+    caller guarantees cache entries are only supplied when valid (the set of
+    source files is unchanged — see :mod:`repointel.context.incremental`).
+    """
+    if registry is None:
+        from repointel.plugins import default_registry
+
+        registry = default_registry()
+
     root = Path(root)
     file_set = {f.path for f in inventory.files}
-    py_resolver = PyImportResolver(file_set)
-    dart_resolver = DartImportResolver(file_set, _dart_package_name(root))
+    resolvers: dict[str, object] = {}
 
     parsed: list[ParsedFile] = []
     for entry in inventory.files:
-        if entry.language not in _PARSED_LANGUAGES:
+        parser = registry.parser_for(entry.language)
+        if parser is None:
             continue
+        if parse_cache is not None and entry.path in parse_cache:
+            parsed.append(parse_cache[entry.path])
+            continue
+        resolver = resolvers.get(parser.language)
+        if resolver is None:
+            resolver = parser.make_resolver(file_set, root)
+            resolvers[parser.language] = resolver
         try:
             source = (root / entry.path).read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if entry.language == "Python":
-            pf = parse_python_file(entry.path, source, py_resolver)
-        else:
-            pf = parse_dart_file(entry.path, source, dart_resolver)
+        pf = parser.parse(entry.path, source, resolver)
         if pf is not None:
             parsed.append(pf)
+    return parsed
 
+
+def assemble_graph(inventory: RepositoryInventory, parsed: list[ParsedFile]) -> ArchitectureGraph:
+    """Assemble the graph from the inventory's structure and parsed IR.
+
+    Pure in-memory work — the expensive I/O happens in :func:`parse_sources`.
+    """
     builder = _GraphBuilder()
     _add_structure(builder, inventory)
     class_index, func_index = _add_code_elements(builder, parsed)
@@ -182,16 +228,6 @@ def _resolve_class(
     if same_file:
         return same_file[0]
     return candidates[0] if len(candidates) == 1 else None
-
-
-def _dart_package_name(root: Path) -> str | None:
-    pubspec = root / "pubspec.yaml"
-    try:
-        text = pubspec.read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return None
-    match = re.search(r"(?m)^name:\s*(\S+)", text)
-    return match.group(1) if match else None
 
 
 # ---- accumulator -------------------------------------------------------------

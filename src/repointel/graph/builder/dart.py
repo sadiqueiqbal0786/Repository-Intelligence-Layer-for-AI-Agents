@@ -9,10 +9,23 @@ skipped — regex extraction of them is too noisy to hit the accuracy bar.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from repointel.graph.builder.parsed import ParsedClass, ParsedFile
 
 _IMPORT_RE = re.compile(r"""\bimport\s+['"]([^'"]+)['"]""")
+_PACKAGE_NAME_RE = re.compile(r"(?m)^name:\s*(\S+)")
+
+
+def dart_package_name(root: Path) -> str | None:
+    """Read the package ``name:`` from ``pubspec.yaml`` (used to resolve
+    ``package:`` imports back to ``lib/`` paths)."""
+    try:
+        text = (Path(root) / "pubspec.yaml").read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    match = _PACKAGE_NAME_RE.search(text)
+    return match.group(1) if match else None
 _CLASS_RE = re.compile(r"\b(?:abstract\s+)?class\s+(\w+)([^{]*)\{", re.MULTILINE)
 _GENERICS_RE = re.compile(r"<[^<>]*>")
 _NAME_RE = re.compile(r"[\w$.]+")

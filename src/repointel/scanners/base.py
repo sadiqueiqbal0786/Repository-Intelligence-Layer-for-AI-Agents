@@ -82,6 +82,7 @@ class RepoContext:
         self._source_dirs: set[str] | None = None
         self._files: list[tuple[str, int]] | None = None
         self._dirs: set[str] | None = None
+        self._signatures: dict[str, tuple[int, float]] | None = None
 
     def exists(self, rel: str) -> bool:
         """Whether ``rel`` exists relative to the repo root."""
@@ -128,11 +129,20 @@ class RepoContext:
         assert self._dirs is not None
         return self._dirs
 
+    def signatures(self) -> dict[str, tuple[int, float]]:
+        """Per-file change signature ``(size_bytes, mtime)`` — the cheap input
+        to incremental change detection (Phase 7)."""
+        if self._signatures is None:
+            self._walk()
+        assert self._signatures is not None
+        return self._signatures
+
     def _walk(self) -> None:
         stats: dict[str, int] = {}
         source_dirs: set[str] = set()
         files: list[tuple[str, int]] = []
         dirs: set[str] = set()
+        signatures: dict[str, tuple[int, float]] = {}
         for path in self.root.rglob("*"):
             rel = path.relative_to(self.root)
             if any(part in IGNORED_DIRS for part in rel.parts):
@@ -143,10 +153,12 @@ class RepoContext:
                 continue
             if path.is_file():
                 try:
-                    size = path.stat().st_size
+                    st = path.stat()
+                    size, mtime = st.st_size, st.st_mtime
                 except OSError:
-                    size = 0
+                    size, mtime = 0, 0.0
                 files.append((rel_posix, size))
+                signatures[rel_posix] = (size, mtime)
                 lang = CODE_EXTENSIONS.get(path.suffix.lower())
                 if lang:
                     stats[lang] = stats.get(lang, 0) + 1
@@ -155,6 +167,7 @@ class RepoContext:
         self._source_dirs = source_dirs
         self._files = files
         self._dirs = dirs
+        self._signatures = signatures
 
 
 @runtime_checkable

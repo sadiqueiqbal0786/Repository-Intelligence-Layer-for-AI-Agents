@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from repointel.graph.builder.cache import BuildCache
 from repointel.models import (
     ArchitectureGraph,
     ArchitectureSummary,
     Conventions,
+    Knowledge,
     ModulesDoc,
     RepositoryInventory,
     RepoSummary,
@@ -24,6 +26,8 @@ REPO_SUMMARY_FILENAME = "repo.json"
 ARCHITECTURE_FILENAME = "architecture.json"
 MODULES_FILENAME = "modules.json"
 CONVENTIONS_FILENAME = "conventions.json"
+KNOWLEDGE_FILENAME = "knowledge.json"
+CACHE_FILENAME = "cache.json"
 
 
 def memory_dir(root: Path) -> Path:
@@ -99,6 +103,32 @@ def read_conventions(root: Path) -> Conventions | None:
     return _read(memory_dir(root) / CONVENTIONS_FILENAME, Conventions)
 
 
+def write_knowledge(knowledge: Knowledge, root: Path) -> Path:
+    """Persist the knowledge layer to ``.repointel/knowledge.json``."""
+    return _write(knowledge.model_dump_json(indent=2), memory_dir(root) / KNOWLEDGE_FILENAME)
+
+
+def read_knowledge(root: Path) -> Knowledge | None:
+    """Load the knowledge layer, or ``None`` if absent."""
+    return _read(memory_dir(root) / KNOWLEDGE_FILENAME, Knowledge)
+
+
+def write_cache(cache: BuildCache, root: Path) -> Path:
+    """Persist the incremental build cache to ``.repointel/cache.json``."""
+    return _write(cache.model_dump_json(indent=2), memory_dir(root) / CACHE_FILENAME)
+
+
+def read_cache(root: Path) -> BuildCache | None:
+    """Load the incremental build cache, or ``None`` if absent/unreadable."""
+    path = memory_dir(root) / CACHE_FILENAME
+    if not path.exists():
+        return None
+    try:
+        return BuildCache.model_validate_json(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return None  # corrupt/old cache -> treat as absent (forces a full rebuild)
+
+
 def _write(payload: str, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(payload + "\n", encoding="utf-8")
@@ -113,8 +143,10 @@ def _read(path: Path, model: type):
 
 __all__ = [
     "ARCHITECTURE_FILENAME",
+    "CACHE_FILENAME",
     "CONVENTIONS_FILENAME",
     "GRAPH_FILENAME",
+    "KNOWLEDGE_FILENAME",
     "MODULES_FILENAME",
     "REPOINTEL_DIRNAME",
     "REPOSITORY_FILENAME",
@@ -122,15 +154,19 @@ __all__ = [
     "graph_path",
     "memory_dir",
     "read_architecture",
+    "read_cache",
     "read_conventions",
     "read_graph",
+    "read_knowledge",
     "read_modules",
     "read_repo_summary",
     "read_repository",
     "repository_path",
     "write_architecture",
+    "write_cache",
     "write_conventions",
     "write_graph",
+    "write_knowledge",
     "write_modules",
     "write_repo_summary",
     "write_repository",

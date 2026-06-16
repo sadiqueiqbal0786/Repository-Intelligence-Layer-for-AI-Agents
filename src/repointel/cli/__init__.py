@@ -13,9 +13,16 @@ from rich.console import Console
 
 from repointel import __version__
 from repointel.cli.commands import analyze as analyze_command
+from repointel.cli.commands import benchmark as benchmark_command
 from repointel.cli.commands import build as build_command
+from repointel.cli.commands import context as context_command
+from repointel.cli.commands import explain as explain_command
 from repointel.cli.commands import graph as graph_command
+from repointel.cli.commands import impact as impact_command
+from repointel.cli.commands import knowledge as knowledge_command
 from repointel.cli.commands import scan as scan_command
+from repointel.cli.commands import serve as serve_command
+from repointel.cli.commands import update as update_command
 
 app = typer.Typer(
     name="repointel",
@@ -30,6 +37,14 @@ app.command()(analyze_command.analyze)
 app.command()(scan_command.scan)
 app.command()(graph_command.graph)
 app.command()(build_command.build)
+app.command()(update_command.update)
+app.command()(explain_command.explain)
+app.command()(impact_command.impact)
+app.command()(knowledge_command.knowledge)
+app.command()(knowledge_command.decide)
+app.command()(context_command.context)
+app.command()(benchmark_command.benchmark)
+app.command()(serve_command.serve)
 
 
 def _version_callback(value: bool) -> None:

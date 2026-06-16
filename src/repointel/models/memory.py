@@ -67,6 +67,19 @@ class TestingConvention(BaseModel):
     test_count: int = 0
 
 
+class NamingConventions(BaseModel):
+    """Dominant identifier-casing styles, inferred from the graph.
+
+    Each value is a casing label (e.g. ``"snake_case"``, ``"PascalCase"``,
+    ``"camelCase"``), ``"mixed"`` when no style holds a clear majority, or
+    ``None`` when there was nothing to measure.
+    """
+
+    files: str | None = None
+    classes: str | None = None
+    functions: str | None = None
+
+
 class Conventions(BaseModel):
     """``conventions.json`` — how the team writes code (deepened in Phase 6)."""
 
@@ -75,6 +88,18 @@ class Conventions(BaseModel):
     package_manager: str | None = None
     build_system: str | None = None
     file_naming: str | None = None  # "snake_case" | "kebab-case" | "camelCase" | "mixed"
+    naming: NamingConventions = Field(default_factory=NamingConventions)
+    dependency_injection: str | None = Field(
+        default=None, description="Detected DI/wiring framework (e.g. FastAPI, Riverpod, Spring)."
+    )
+    layering: list[str] = Field(
+        default_factory=list,
+        description="Recurring layer directory names that reveal the decomposition.",
+    )
+    patterns: list[str] = Field(
+        default_factory=list,
+        description="Detected structural patterns (e.g. repository_pattern, service_layer).",
+    )
     testing: TestingConvention = Field(default_factory=TestingConvention)
 
 
