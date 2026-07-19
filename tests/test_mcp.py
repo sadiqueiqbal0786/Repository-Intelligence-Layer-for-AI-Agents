@@ -180,6 +180,39 @@ def test_hotspots_without_git_reports_unavailable(tmp_path: Path) -> None:
     assert result["hotspots"] == []
 
 
+def test_find_symbol_locates_definition_and_callers(tmp_path: Path) -> None:
+    _project(tmp_path)
+    result = tools.find_symbol(tmp_path, "make")
+    assert result["found"] is True
+    defn = result["definitions"][0]
+    assert defn["path"] == "src/demo/service.py"
+    assert defn["kind"] == "function"
+    assert defn["line"]  # a real line number
+
+
+def test_find_symbol_unknown(tmp_path: Path) -> None:
+    _project(tmp_path)
+    result = tools.find_symbol(tmp_path, "does_not_exist")
+    assert result["found"] is False
+    assert result["definitions"] == []
+
+
+def test_what_tests_maps_source_to_tests(tmp_path: Path) -> None:
+    _project(tmp_path)
+    # A test that imports the source, plus a name-convention test file.
+    _write(
+        tmp_path,
+        "tests/test_models.py",
+        "from demo.models import User\n\n\ndef test_user():\n    assert User\n",
+    )
+    result = tools.what_tests(tmp_path, "models.py")
+    assert result["found"] is True
+    paths = {t["path"] for t in result["tests"]}
+    assert "tests/test_models.py" in paths
+    match = next(t for t in result["tests"] if t["path"] == "tests/test_models.py")
+    assert "imports" in match["matched_by"] or "name" in match["matched_by"]
+
+
 def test_get_health(tmp_path: Path) -> None:
     _project(tmp_path)
     health = tools.get_health(tmp_path)
@@ -203,6 +236,8 @@ def test_server_registers_all_tools(tmp_path: Path) -> None:
         "get_module_info",
         "get_dependencies",
         "get_critical_files",
+        "find_symbol",
+        "what_tests",
         "explain_module",
         "analyze_impact",
     }

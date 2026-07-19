@@ -229,6 +229,38 @@ def get_hotspots(root: Path, limit: int = 10) -> dict:
     }
 
 
+def find_symbol(root: Path, name: str) -> dict:
+    """Locate a class/function/method by name: where it's defined and who
+    references it.
+
+    Answers "where is X defined / who calls it?" in one call instead of a grep
+    plus reading files. ``reference_count`` is a floor (only unambiguously
+    resolved calls are edges), stated rather than overclaimed.
+    """
+    from repointel.context.symbols import find_symbol as _find_symbol
+
+    ensure_memory(root)
+    graph = read_graph(root)
+    assert graph is not None
+    definitions = _find_symbol(graph, name)
+    if not definitions:
+        return {"symbol": name, "found": False, "definitions": []}
+    return {"symbol": name, "found": True, "definitions": definitions}
+
+
+def what_tests(root: Path, target: str) -> dict:
+    """Which test files cover ``target`` — the tests to run before/after editing
+    it. Found via test files that import the source and by test-name convention
+    (foo.dart -> foo_test.dart), each reported with how it matched.
+    """
+    from repointel.context.testmap import tests_for
+
+    ensure_memory(root)
+    graph = read_graph(root)
+    assert graph is not None
+    return tests_for(graph, target)
+
+
 def _rank_by_in_degree(graph) -> list[tuple[str, int]]:
     """(path, incoming-imports) for every file, most-depended-on first."""
     in_degree: dict[str, int] = {}
@@ -255,6 +287,7 @@ __all__ = [
     "analyze_impact",
     "ensure_memory",
     "explain_module",
+    "find_symbol",
     "get_architecture",
     "get_context",
     "get_conventions",
@@ -265,4 +298,5 @@ __all__ = [
     "get_knowledge",
     "get_module_info",
     "get_project_summary",
+    "what_tests",
 ]

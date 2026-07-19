@@ -108,6 +108,20 @@ def build_server(root: Path) -> FastMCP:
         return tools.explain_module(root, target)
 
     @server.tool()
+    def find_symbol(name: str) -> dict[str, Any]:
+        """Locate a class, function, or method by name: the file and line it's
+        defined at, and who references it. Use this instead of grepping +
+        reading files to answer "where is X defined / who calls it?"."""
+        return tools.find_symbol(root, name)
+
+    @server.tool()
+    def what_tests(target: str) -> dict[str, Any]:
+        """List the test files that cover a source file (by path or name): the
+        tests to run before/after editing it. Found via tests that import the
+        file and by test-name convention."""
+        return tools.what_tests(root, target)
+
+    @server.tool()
     def analyze_impact(target: str) -> dict[str, Any]:
         """Predict the impact of changing a file by path or name (e.g.
         "auth_service.py"): the files that transitively import it, the modules
