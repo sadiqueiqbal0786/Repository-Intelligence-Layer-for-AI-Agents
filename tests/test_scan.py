@@ -92,6 +92,28 @@ def test_entry_points_and_configs(tmp_path: Path) -> None:
     assert "pyproject.toml" in inv.configs
 
 
+def test_secrets_are_never_indexed(tmp_path: Path) -> None:
+    """Secret-bearing files (.env, keys, credentials) must not enter memory,
+    which can be committed/shared. Value-free templates stay."""
+    _python_repo(tmp_path)
+    _write(tmp_path, ".env", "API_KEY=super-secret-value\n")
+    _write(tmp_path, ".env.production", "DB_PASSWORD=hunter2\n")
+    _write(tmp_path, ".env.example", "API_KEY=\n")
+    _write(tmp_path, "certs/server.key", "-----BEGIN PRIVATE KEY-----\n")
+    _write(tmp_path, "id_rsa", "-----BEGIN OPENSSH PRIVATE KEY-----\n")
+    inv = scan_repo(tmp_path)
+
+    indexed = {f.path for f in inv.files}
+    assert ".env" not in indexed
+    assert ".env.production" not in indexed
+    assert "certs/server.key" not in indexed
+    assert "id_rsa" not in indexed
+    # The template carries structure, not secrets — keep it.
+    assert ".env.example" in indexed
+    assert ".env" not in inv.configs
+    assert ".env.production" not in inv.configs
+
+
 def test_loc_counted(tmp_path: Path) -> None:
     _python_repo(tmp_path)
     inv = scan_repo(tmp_path)

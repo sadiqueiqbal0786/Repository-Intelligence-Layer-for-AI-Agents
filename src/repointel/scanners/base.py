@@ -102,6 +102,41 @@ def is_generated_source(rel: str) -> bool:
     return rel.endswith(GENERATED_SUFFIXES)
 
 
+# Files that commonly hold secrets. RepoIntel's memory can be committed or
+# shared, so these are excluded from the walk entirely — never inventoried,
+# never read, never persisted. Templates (``.env.example`` etc.) are safe and
+# kept, since they carry structure without values.
+_ENV_SAFE_SUFFIXES: tuple[str, ...] = (
+    ".example", ".sample", ".template", ".dist", ".defaults", ".test",
+)
+_SECRET_SUFFIXES: tuple[str, ...] = (
+    ".pem", ".key", ".p12", ".pfx", ".keystore", ".jks", ".ppk", ".asc",
+)
+_SECRET_FILENAMES: frozenset[str] = frozenset(
+    {
+        ".netrc", ".pgpass", ".npmrc", ".pypirc", ".htpasswd",
+        "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
+        "credentials", "credentials.json", "secrets", "secrets.json",
+        "secrets.yaml", "secrets.yml", "service-account.json",
+    }
+)
+
+
+def is_sensitive_path(rel: str) -> bool:
+    """Whether ``rel`` likely holds secrets and must never be indexed/persisted.
+
+    Covers real dotenv files (``.env``, ``.env.local``, ``.env.production`` …)
+    but not templates (``.env.example``), private keys/keystores, and a handful
+    of well-known credential files.
+    """
+    name = rel.rsplit("/", 1)[-1].lower()
+    if name == ".env" or (name.startswith(".env.") and not name.endswith(_ENV_SAFE_SUFFIXES)):
+        return True
+    if name.endswith(_SECRET_SUFFIXES):
+        return True
+    return name in _SECRET_FILENAMES
+
+
 class RepoContext:
     """Cached, read-only view over a repository root.
 
@@ -123,7 +158,13 @@ class RepoContext:
         return (self.root / rel).exists()
 
     def read_text(self, rel: str) -> str | None:
-        """Read a file relative to the root, returning ``None`` if absent/unreadable."""
+        """Read a file relative to the root, returning ``None`` if absent/unreadable.
+
+        Refuses to read secret-bearing files (``.env``, keys, credentials) so
+        their contents can never be cached or persisted into memory.
+        """
+        if is_sensitive_path(rel):
+            return None
         if rel not in self._text_cache:
             target = self.root / rel
             try:
@@ -185,6 +226,8 @@ class RepoContext:
             if path.is_dir():
                 dirs.add(rel_posix)
                 continue
+            if is_sensitive_path(rel_posix):
+                continue  # secrets never enter the (shareable) memory
             if path.is_file():
                 try:
                     st = path.stat()

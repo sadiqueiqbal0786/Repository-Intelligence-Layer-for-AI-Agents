@@ -105,7 +105,9 @@ CONFIG_FILENAMES: frozenset[str] = frozenset(
         "build.gradle.kts",
         "settings.gradle",
         ".gitignore",
-        ".env",
+        # NB: ".env" is intentionally NOT here — real dotenv files are treated
+        # as sensitive and excluded from the walk (see is_sensitive_path). Only
+        # the value-free template is safe to record.
         ".env.example",
     }
 )
