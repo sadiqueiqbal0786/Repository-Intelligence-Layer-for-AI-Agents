@@ -8,14 +8,16 @@ and usable as a plain library API.
 
 from __future__ import annotations
 
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from repointel.context.compression import context_pack
-from repointel.context.explanation import available_modules
+from repointel.context.explanation import available_modules, resolve_module
 from repointel.context.explanation import explain as explain_target
 from repointel.context.impact import analyze_impact as analyze_impact_target
 from repointel.context.impact import impact_candidates
+from repointel.context.knowledge import file_churn
 from repointel.context.memory import build_memory, persist_memory
+from repointel.scanners.base import is_test_path
 from repointel.storage.json import (
     read_architecture,
     read_conventions,
@@ -121,6 +123,8 @@ def explain_module(root: Path, target: str) -> dict:
     Generated from repository memory without an LLM. Returns an ``error`` with
     the available module list when ``target`` doesn't match.
     """
+    from repointel.context.knowledge import notes_for_scope
+
     ensure_memory(root)
     explanation = explain_target(root, target)
     if explanation is None:
@@ -128,7 +132,14 @@ def explain_module(root: Path, target: str) -> dict:
             "error": f"module '{target}' not found",
             "available": available_modules(root),
         }
-    return explanation.model_dump()
+    result = explanation.model_dump()
+    # Surface any agent write-backs scoped to this module — the inherited "why".
+    knowledge = read_knowledge(root)
+    if knowledge is not None:
+        notes = notes_for_scope(knowledge, explanation.module)
+        if notes:
+            result["notes"] = [n.model_dump() for n in notes]
+    return result
 
 
 def analyze_impact(root: Path, target: str) -> dict:
@@ -147,50 +158,194 @@ def analyze_impact(root: Path, target: str) -> dict:
     return report.model_dump()
 
 
+def get_health(root: Path) -> dict:
+    """Report how much of the repo the graph actually resolved.
+
+    A fail-loud trust signal: overall ``confidence``, how many graphed source
+    files are connected vs. isolated, per-language coverage (graphed vs.
+    inventory-only), and human-readable ``warnings``. Consult this before
+    trusting a "safe to change" / "no consumers" verdict — low confidence means
+    imports may be unresolved and those verdicts under-report.
+    """
+    from repointel.context.staleness import assess_staleness
+
+    ensure_memory(root)
+    repo = read_repo_summary(root)
+    assert repo is not None
+    health = (
+        repo.coverage.model_dump()
+        if repo.coverage is not None
+        else {"confidence": "unknown", "warnings": [], "languages": []}
+    )
+    health["freshness"] = assess_staleness(Path(root), repo.built_at_commit)
+    return health
+
+
 def get_critical_files(root: Path, limit: int = 10) -> dict:
-    """The most-depended-on files (highest import in-degree) — the risk hotspots."""
+    """The most-depended-on production files (highest import in-degree).
+
+    Test/spec files are segmented out of the ranking so test infrastructure (a
+    heavily-shared fake or mock) can't crowd out the real core files an agent is
+    warning about. ``test_files_excluded`` reports how many were set aside, so
+    the filtering is never silent.
+    """
     ensure_memory(root)
     graph = read_graph(root)
     assert graph is not None
 
+    ranked = _rank_by_in_degree(graph)
+    prod = [(p, c) for p, c in ranked if not is_test_path(p)]
+    excluded = len(ranked) - len(prod)
+    return {
+        "critical_files": [{"path": path, "imported_by": count} for path, count in prod[:limit]],
+        "test_files_excluded": excluded,
+    }
+
+
+def get_hotspots(root: Path, limit: int = 10) -> dict:
+    """Risk hotspots = git churn × import in-degree.
+
+    A file that both changes often (churn) and is depended on by many others
+    (in-degree) is where risk concentrates — a better signal than in-degree
+    alone, which ranks a stable, heavily-shared file as high as a volatile one.
+    Requires git history; ``available: false`` when there is none. Test/spec
+    files are excluded.
+    """
+    ensure_memory(root)
+    graph = read_graph(root)
+    assert graph is not None
+
+    churn = file_churn(Path(root))
+    if not churn:
+        return {"available": False, "hotspots": [], "reason": "no git history"}
+
+    in_degree = dict(_rank_by_in_degree(graph))
+    scored = []
+    for path, commits in churn.items():
+        if is_test_path(path):
+            continue
+        imported_by = in_degree.get(path, 0)
+        score = commits * imported_by
+        if score > 0:
+            scored.append((path, score, commits, imported_by))
+    scored.sort(key=lambda item: (-item[1], -item[2], item[0]))
+    return {
+        "available": True,
+        "hotspots": [
+            {"path": p, "score": s, "commits": c, "imported_by": d}
+            for p, s, c, d in scored[:limit]
+        ],
+    }
+
+
+def record_note(root: Path, text: str, scope: str | None = None) -> dict:
+    """Write a discovery back into memory for the next agent to inherit.
+
+    Use this when you learn something the code doesn't say — a non-obvious
+    constraint, a gotcha, why something is the way it is. Optionally ``scope`` it
+    to a file/module path so it surfaces when that area is explored. Persists
+    across rebuilds.
+    """
+    from repointel.context.knowledge import record_note as _record_note
+
+    ensure_memory(root)
+    note = _record_note(Path(root), text, scope=scope)
+    return {"recorded": True, "note": note.model_dump()}
+
+
+def find_symbol(root: Path, name: str) -> dict:
+    """Locate a class/function/method by name: where it's defined and who
+    references it.
+
+    Answers "where is X defined / who calls it?" in one call instead of a grep
+    plus reading files. ``reference_count`` is a floor (only unambiguously
+    resolved calls are edges), stated rather than overclaimed.
+    """
+    from repointel.context.symbols import find_symbol as _find_symbol
+
+    ensure_memory(root)
+    graph = read_graph(root)
+    assert graph is not None
+    definitions = _find_symbol(graph, name)
+    if not definitions:
+        return {"symbol": name, "found": False, "definitions": []}
+    return {"symbol": name, "found": True, "definitions": definitions}
+
+
+def get_feature(root: Path, name: str) -> dict:
+    """Describe a whole feature subtree (e.g. "calendars"), not a single dir.
+
+    Aggregates every module under the named segment into one view: combined
+    size, its sub-modules, what it depends on outside itself, and who depends on
+    it. Use this when a feature spans bloc/data/presentation folders that
+    get_module_info would report as separate modules.
+    """
+    from repointel.context.feature import describe_feature
+
+    ensure_memory(root)
+    doc = read_modules(root)
+    assert doc is not None
+    result = describe_feature(doc.modules, name)
+    if result is None:
+        return {
+            "feature": name,
+            "found": False,
+            "available": sorted({seg for m in doc.modules for seg in m.path.split("/")}),
+        }
+    return result
+
+
+def what_tests(root: Path, target: str) -> dict:
+    """Which test files cover ``target`` — the tests to run before/after editing
+    it. Found via test files that import the source and by test-name convention
+    (foo.dart -> foo_test.dart), each reported with how it matched.
+    """
+    from repointel.context.testmap import tests_for
+
+    ensure_memory(root)
+    graph = read_graph(root)
+    assert graph is not None
+    return tests_for(graph, target)
+
+
+def _rank_by_in_degree(graph) -> list[tuple[str, int]]:
+    """(path, incoming-imports) for every file, most-depended-on first."""
     in_degree: dict[str, int] = {}
     for edge in graph.edges:
         if edge.kind == "imports":
             in_degree[edge.target] = in_degree.get(edge.target, 0) + 1
     id_to_path = {n.id: n.path for n in graph.nodes if n.path}
-
-    ranked = sorted(
+    return sorted(
         ((id_to_path[nid], count) for nid, count in in_degree.items() if nid in id_to_path),
         key=lambda item: (-item[1], item[0]),
     )
-    return {
-        "critical_files": [
-            {"path": path, "imported_by": count} for path, count in ranked[:limit]
-        ]
-    }
 
 
 def _find_module(modules: list, query: str):
-    """Match a module by exact path, basename, or path suffix."""
-    for m in modules:
-        if m.path == query:
-            return m
-    for m in modules:
-        if PurePosixPath(m.path).name == query or m.path.endswith(f"/{query}"):
-            return m
-    return None
+    """Match a module by exact path, basename, or path suffix.
+
+    Delegates to the shared resolver so ``get_module_info`` prefers real source
+    over test/spec dirs exactly like ``explain_module`` does.
+    """
+    return resolve_module(modules, query)
 
 
 __all__ = [
     "analyze_impact",
     "ensure_memory",
     "explain_module",
+    "find_symbol",
     "get_architecture",
+    "get_feature",
     "get_context",
     "get_conventions",
     "get_critical_files",
     "get_dependencies",
+    "get_health",
+    "get_hotspots",
     "get_knowledge",
     "get_module_info",
     "get_project_summary",
+    "record_note",
+    "what_tests",
 ]

@@ -23,6 +23,7 @@ from repointel.models import (
     ModuleSummary,
     RepositoryInventory,
 )
+from repointel.scanners import resolve_project_root
 from repointel.storage.json import (
     read_graph,
     read_modules,
@@ -59,7 +60,7 @@ def explain(root: Path, target: str) -> ModuleExplanation | None:
 
     Builds memory on first use; returns ``None`` if no module matches.
     """
-    root = Path(root)
+    root = resolve_project_root(Path(root))
     if read_repo_summary(root) is None:
         persist_memory(build_memory(root), root)
 
@@ -73,7 +74,7 @@ def explain(root: Path, target: str) -> ModuleExplanation | None:
 
 def available_modules(root: Path) -> list[str]:
     """Module paths an :func:`explain` query can resolve against."""
-    doc = read_modules(Path(root))
+    doc = read_modules(resolve_project_root(Path(root)))
     return [m.path for m in doc.modules] if doc else []
 
 
@@ -83,33 +84,53 @@ def build_explanation(
     graph: ArchitectureGraph,
     inventory: RepositoryInventory,
 ) -> ModuleExplanation | None:
-    """Assemble an explanation from already-loaded memory (pure function)."""
-    module = _resolve(modules.modules, target)
-    if module is None:
-        return None
+    """Assemble an explanation from already-loaded memory (pure function).
 
-    own_files = set(module.files)
+    ``target`` may name a single leaf module *or* a feature subtree (a directory
+    whose code lives in sub-modules, e.g. ``lib/src/calendars`` split into
+    ``calendars/bloc``, ``calendars/data`` …). Subtree targets are aggregated so
+    a real feature is never mistaken for the lone ``test/<feature>`` directory
+    that happens to share its name.
+    """
+    resolved = _resolve_target(modules.modules, target)
+    if resolved is None:
+        return None
+    root, members = resolved
+
+    member_paths = {m.path for m in members}
+    own_files: set[str] = set()
+    for m in members:
+        own_files.update(m.files)
     view = GraphView(graph)
 
-    dependencies = list(module.imports)
-    consumers = sorted(m.path for m in modules.modules if module.path in m.imports)
+    # Imports leaving the subtree; consumers importing into it — internal edges
+    # between sub-modules are excluded so a feature isn't "consumed by itself".
+    dependencies = sorted({imp for m in members for imp in m.imports if imp not in member_paths})
+    consumers = sorted(
+        m.path
+        for m in modules.modules
+        if m.path not in member_paths and any(p in m.imports for p in member_paths)
+    )
     key_classes = sorted(
         {n.name for n in graph.nodes if n.kind == "class" and n.path in own_files}
     )
     critical_files = _critical_files(graph, own_files)
     blast_radius = _blast_radius(view, own_files)
     entry_points = [ep for ep in inventory.entry_points if ep in own_files]
-    risk_level, risks = _assess_risk(module, consumers, blast_radius)
+
+    loc = sum(m.loc for m in members)
+    is_feature = len(members) > 1
+    risk_level, risks = _assess_risk(loc, consumers, blast_radius)
 
     return ModuleExplanation(
         target=target,
-        module=module.path,
-        language=module.language,
-        purpose=_purpose(module, key_classes),
-        file_count=module.file_count,
-        class_count=module.classes,
-        function_count=module.functions,
-        loc=module.loc,
+        module=root,
+        language=_dominant_language(members),
+        purpose=_purpose(root, members, key_classes, is_feature),
+        file_count=sum(m.file_count for m in members),
+        class_count=sum(m.classes for m in members),
+        function_count=sum(m.functions for m in members),
+        loc=loc,
         key_classes=key_classes[:_KEY_CLASS_LIMIT],
         dependencies=dependencies,
         consumers=consumers,
@@ -121,15 +142,81 @@ def build_explanation(
     )
 
 
-def _resolve(modules: list[ModuleSummary], query: str) -> ModuleSummary | None:
-    """Match a module by exact path, basename, or path suffix (cf. MCP tools)."""
+# Path segments that mark a directory as tests/specs rather than shippable
+# source. A bare name like ``calendars`` frequently exists under BOTH ``lib/src``
+# and ``test`` — resolving to the test copy yields a wrong explanation and a
+# dangerously false "no internal consumers — safe to change" verdict.
+_TEST_SEGMENTS: frozenset[str] = frozenset(
+    {"test", "tests", "integration_test", "test_driver", "__tests__", "spec", "specs"}
+)
+
+
+def _is_test_path(path: str) -> bool:
+    return any(seg in _TEST_SEGMENTS for seg in path.split("/"))
+
+
+def _resolve_target(
+    modules: list[ModuleSummary], query: str
+) -> tuple[str, list[ModuleSummary]] | None:
+    """Resolve ``query`` to a subtree root and the modules under it.
+
+    Matches against every module path *and every ancestor directory*, so a
+    feature directory that holds no direct source (only sub-modules) still
+    resolves — the case a leaf-only matcher misses, sending ``calendars`` to
+    ``test/calendars`` and failing exact paths like ``lib/src/calendars``.
+    Prefers real source over test/spec dirs, then the shallowest match.
+    """
+    q = query.strip("/")
+    if not q:
+        return None
+
+    # Candidate directories: each module path plus all of its ancestors.
+    dirs: set[str] = set()
     for m in modules:
-        if m.path == query:
-            return m
+        parts = m.path.split("/")
+        for i in range(1, len(parts) + 1):
+            dirs.add("/".join(parts[:i]))
+
+    matched = [
+        d for d in dirs if d == q or d.endswith(f"/{q}") or PurePosixPath(d).name == q
+    ]
+    if not matched:
+        return None
+    matched.sort(key=lambda d: (_is_test_path(d), d.count("/"), d))
+    root = matched[0]
+
+    members = [m for m in modules if m.path == root or m.path.startswith(f"{root}/")]
+    return (root, members) if members else None
+
+
+def _dominant_language(members: list[ModuleSummary]) -> str | None:
+    counts: dict[str, int] = {}
+    for m in members:
+        if m.language:
+            counts[m.language] = counts.get(m.language, 0) + m.file_count
+    return max(counts, key=lambda k: counts[k]) if counts else None
+
+
+def resolve_module(modules: list[ModuleSummary], query: str) -> ModuleSummary | None:
+    """Match a module by exact path, basename, or path suffix.
+
+    When several modules match a non-exact query, choose deterministically:
+    real source before test/spec dirs, then the shallowest (most canonical)
+    path, then lexical order. This keeps ``explain calendars`` on
+    ``lib/src/calendars`` rather than an incidental ``test/calendars``. Shared
+    with the MCP ``get_module_info`` tool so both resolve identically.
+    """
+    q = query.strip("/")
     for m in modules:
-        if PurePosixPath(m.path).name == query or m.path.endswith(f"/{query}"):
+        if m.path == q:
             return m
-    return None
+    candidates = [
+        m for m in modules if PurePosixPath(m.path).name == q or m.path.endswith(f"/{q}")
+    ]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda m: (_is_test_path(m.path), m.path.count("/"), m.path))
+    return candidates[0]
 
 
 def _critical_files(graph: ArchitectureGraph, own_files: set[str]) -> list[str]:
@@ -156,16 +243,16 @@ def _blast_radius(view: GraphView, own_files: set[str]) -> int:
 
 
 def _assess_risk(
-    module: ModuleSummary, consumers: list[str], blast_radius: int
+    loc: int, consumers: list[str], blast_radius: int
 ) -> tuple[str, list[str]]:
     risks: list[str] = []
     n_consumers = len(consumers)
     if n_consumers:
         risks.append(f"Imported by {n_consumers} other module(s) — changes ripple to consumers.")
     if blast_radius:
-        risks.append(f"{blast_radius} file(s) transitively depend on this module.")
-    if module.loc >= 1000:
-        risks.append(f"Large module ({module.loc} LOC) widens the surface for regressions.")
+        risks.append(f"{blast_radius} file(s) transitively depend on this.")
+    if loc >= 1000:
+        risks.append(f"Large ({loc} LOC) widens the surface for regressions.")
     if not n_consumers and not blast_radius:
         risks.append("No internal consumers — likely safe to change in isolation.")
 
@@ -178,15 +265,22 @@ def _assess_risk(
     return level, risks
 
 
-def _purpose(module: ModuleSummary, key_classes: list[str]) -> str:
-    name = PurePosixPath(module.path).name if module.path != "." else "the root package"
-    detail = (
-        f"defines {module.classes} class(es) and {module.functions} function(s) "
-        f"across {module.file_count} file(s)"
-    )
-    if module.language:
-        detail = f"is written in {module.language} and {detail}"
-    sentence = f"The `{name}` module {detail}."
+def _purpose(
+    root: str, members: list[ModuleSummary], key_classes: list[str], is_feature: bool
+) -> str:
+    name = PurePosixPath(root).name if root != "." else "the root package"
+    classes = sum(m.classes for m in members)
+    functions = sum(m.functions for m in members)
+    file_count = sum(m.file_count for m in members)
+    language = _dominant_language(members)
+    kind = "feature" if is_feature else "module"
+
+    detail = f"defines {classes} class(es) and {functions} function(s) across {file_count} file(s)"
+    if is_feature:
+        detail += f" in {len(members)} sub-modules"
+    if language:
+        detail = f"is written in {language} and {detail}"
+    sentence = f"The `{name}` {kind} {detail}."
 
     role = _infer_role(key_classes)
     if role:
@@ -201,4 +295,4 @@ def _infer_role(key_classes: list[str]) -> str | None:
     return None
 
 
-__all__ = ["available_modules", "build_explanation", "explain"]
+__all__ = ["available_modules", "build_explanation", "explain", "resolve_module"]

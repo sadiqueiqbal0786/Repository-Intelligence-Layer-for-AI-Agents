@@ -106,6 +106,30 @@ def test_record_decision_unique_ids(tmp_path: Path) -> None:
     assert read_knowledge(tmp_path) is not None
 
 
+def test_docs_ingested_from_readme_and_claude(tmp_path: Path) -> None:
+    from repointel.context.knowledge import discover_docs
+
+    (tmp_path / "README.md").write_text(
+        "# Acme Engine\n\n"
+        "Acme is a persistent memory layer for agents. The allocator is the "
+        "only placer.\n\n"
+        "## Setup\n\nRun it.\n\n## Design\n\nWhy it works.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "CLAUDE.md").write_text(
+        "# Guidance\n\nCommitments are a duration, not a clock.\n", encoding="utf-8"
+    )
+    docs = discover_docs(tmp_path)
+    sources = {d.source for d in docs}
+    assert "README.md" in sources
+    assert "CLAUDE.md" in sources
+
+    readme = next(d for d in docs if d.source == "README.md")
+    assert readme.title == "Acme Engine"
+    assert "allocator is the only placer" in readme.summary
+    assert "Setup" in readme.headings and "Design" in readme.headings
+
+
 def test_history_non_git(tmp_path: Path) -> None:
     _project(tmp_path)
     history = project_history(tmp_path)
@@ -143,3 +167,11 @@ def test_history_from_git(tmp_path: Path) -> None:
     assert history.contributor_count == 1
     assert history.top_contributors[0].name == "Tester"
     assert "Initial commit" in history.recent_commits
+
+    # A subdirectory of the repo still resolves history (git walks up to .git) —
+    # the monorepo case where the package root is below the git root.
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "x.py").write_text("x = 1\n", encoding="utf-8")
+    sub = project_history(tmp_path / "app")
+    assert sub.is_git is True
+    assert sub.total_commits == 1

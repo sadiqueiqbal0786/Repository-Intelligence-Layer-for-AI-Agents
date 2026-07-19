@@ -61,6 +61,9 @@ def test_build_context_pack_fields(tmp_path: Path) -> None:
     assert pack.class_naming == "PascalCase"
     assert "fastapi" in pack.top_dependencies
     assert pack.patterns  # inferred patterns carried through
+    # Provenance: identity facts cite where they came from.
+    assert pack.provenance.get("framework")  # e.g. the fastapi dependency
+    assert pack.confidence in {"high", "medium", "low", "unknown"}
 
 
 def test_render_markdown_has_sections(tmp_path: Path) -> None:

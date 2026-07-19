@@ -71,12 +71,19 @@ def build_context_pack(
         top_dependencies=_top_dependencies(inventory),
         decisions=[d.title for d in knowledge.decisions[:_DECISION_LIMIT]],
         history=_history_line(knowledge),
+        confidence=repo.coverage.confidence if repo.coverage else None,
+        warnings=list(repo.coverage.warnings) if repo.coverage else [],
+        summary=knowledge.docs[0].summary if knowledge.docs else None,
+        doc_sources=[d.source for d in knowledge.docs],
+        provenance=dict(fp.evidence),
     )
 
 
 def context_pack(root: Path) -> ContextPack | None:
     """Load (building if needed) and assemble the context pack for ``root``."""
     from repointel.context.memory import build_memory, persist_memory
+    from repointel.context.staleness import assess_staleness
+    from repointel.scanners import resolve_project_root
     from repointel.storage.json import (
         read_architecture,
         read_conventions,
@@ -86,7 +93,7 @@ def context_pack(root: Path) -> ContextPack | None:
         read_repository,
     )
 
-    root = Path(root)
+    root = resolve_project_root(Path(root))
     if read_repo_summary(root) is None:
         persist_memory(build_memory(root), root)
 
@@ -94,7 +101,7 @@ def context_pack(root: Path) -> ContextPack | None:
     inventory = read_repository(root)
     if repo is None or inventory is None:
         return None
-    return build_context_pack(
+    pack = build_context_pack(
         repo,
         read_architecture(root) or ArchitectureSummary(),
         read_modules(root) or ModulesDoc(path=str(root)),
@@ -102,6 +109,13 @@ def context_pack(root: Path) -> ContextPack | None:
         read_knowledge(root) or Knowledge(),
         inventory,
     )
+    # Staleness is a *live* comparison to the working tree, so it's added here at
+    # read time rather than baked into the persisted pack.
+    freshness = assess_staleness(root, repo.built_at_commit)
+    if freshness["message"]:
+        pack.stale = bool(freshness["stale"])
+        pack.warnings = [*pack.warnings, freshness["message"]]
+    return pack
 
 
 def render_context_markdown(pack: ContextPack) -> str:
@@ -121,6 +135,14 @@ def render_context_markdown(pack: ContextPack) -> str:
         f"{pack.file_count} files · {pack.module_count} modules · "
         f"{pack.total_loc} LOC · {pack.dependency_count} deps"
     )
+    if pack.confidence:
+        lines.append(f"Graph confidence: {pack.confidence}")
+    for warning in pack.warnings:
+        lines.append(f"⚠️ {warning}")
+
+    if pack.summary:
+        docs = f" (from {', '.join(pack.doc_sources)})" if pack.doc_sources else ""
+        lines += ["", "## About", f"{pack.summary}{docs}"]
 
     conventions = _join(
         [
@@ -141,6 +163,9 @@ def render_context_markdown(pack: ContextPack) -> str:
     _section(lines, "Decisions", pack.decisions)
     if pack.history:
         lines += ["", "## History", pack.history]
+    if pack.provenance:
+        lines += ["", "## Sources"]
+        lines += [f"- {fact}: {evidence}" for fact, evidence in pack.provenance.items()]
     return "\n".join(lines) + "\n"
 
 

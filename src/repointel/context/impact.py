@@ -11,12 +11,13 @@ from pathlib import Path
 from repointel.context.memory import build_memory, persist_memory
 from repointel.graph.impact import candidate_files, compute_impact
 from repointel.models import ImpactReport
+from repointel.scanners import resolve_project_root
 from repointel.storage.json import read_graph, read_repo_summary
 
 
 def analyze_impact(root: Path, target: str) -> ImpactReport | None:
     """Predict the impact of changing ``target``; builds memory on first use."""
-    root = Path(root)
+    root = resolve_project_root(Path(root))
     if read_repo_summary(root) is None:
         persist_memory(build_memory(root), root)
     graph = read_graph(root)
@@ -27,7 +28,7 @@ def analyze_impact(root: Path, target: str) -> ImpactReport | None:
 
 def impact_candidates(root: Path, target: str) -> list[str]:
     """Ambiguous file matches for ``target`` (for 'did you mean' diagnostics)."""
-    graph = read_graph(Path(root))
+    graph = read_graph(resolve_project_root(Path(root)))
     return candidate_files(graph, target) if graph else []
 
 

@@ -135,6 +135,38 @@ If `context` prints a readable summary, you're set.
 
 ---
 
+## Monorepos & nested projects
+
+If the actual project lives in a **subfolder** — e.g. a Flutter app in `app/`,
+or a web app whose `package.json` is under `frontend/` — just point RepoIntel at
+the **repository root**. It auto-detects the project:
+
+- If the path you give already has a manifest (`pubspec.yaml`, `package.json`,
+  `pyproject.toml`, …), it's used as-is.
+- If it doesn't, but **exactly one** immediate subfolder does, RepoIntel
+  descends into that subfolder automatically — so `serve /repo` analyzes
+  `/repo/app` without you having to know that.
+- If **several** subfolders qualify (a true multi-package monorepo), RepoIntel
+  stays at the root rather than guessing. In that case, point it at the specific
+  package you care about, e.g. `serve /repo/packages/api`.
+
+Git history still resolves correctly when the project is nested — RepoIntel
+walks up to the repository's `.git`, so a Flutter app in `app/` next to a
+root-level `.git` keeps its commit history. (For the container, make sure the
+image includes `git` — the bundled `Dockerfile` does — and mount the repo root
+so `.git` is visible.)
+
+So for a nested project, the simplest MCP config just serves the repo root:
+
+```json
+"repointel": { "command": "repointel", "args": ["serve", "/abs/path/to/repo"] }
+```
+
+Memory (`.repointel/`) is written into the detected project folder (e.g.
+`app/.repointel/`) — add `.repointel/` to that folder's `.gitignore`.
+
+---
+
 ## 4. Use it as an MCP server
 
 `repointel serve <path>` is a standard **stdio MCP server**. Your AI agent spawns

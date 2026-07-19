@@ -5,9 +5,9 @@ SDK is imported lazily inside :func:`build_server` so importing this module (and
 the rest of the package) never hard-requires the SDK.
 
 Tools: ``get_context``, ``get_project_summary``, ``get_architecture``,
-``get_conventions``, ``get_knowledge``, ``get_module_info``,
-``get_dependencies``, ``get_critical_files``, ``explain_module``,
-``analyze_impact``.
+``get_conventions``, ``get_knowledge``, ``get_health``, ``get_module_info``,
+``get_dependencies``, ``get_critical_files``, ``get_hotspots``,
+``explain_module``, ``analyze_impact``.
 """
 
 from __future__ import annotations
@@ -25,7 +25,11 @@ def build_server(root: Path) -> FastMCP:
     """Create a FastMCP server whose tools serve memory for ``root``."""
     from mcp.server.fastmcp import FastMCP
 
-    root = Path(root).resolve()
+    from repointel.scanners import resolve_project_root
+
+    # Resolve a nested project root once (e.g. app/) so every tool reads and
+    # writes the same .repointel/ location.
+    root = resolve_project_root(Path(root).resolve())
     server = FastMCP("repointel")
 
     @server.tool()
@@ -69,9 +73,26 @@ def build_server(root: Path) -> FastMCP:
         return tools.get_module_info(root, module)
 
     @server.tool()
+    def get_feature(name: str) -> dict[str, Any]:
+        """Describe a whole feature (e.g. "auth", "calendars") that spans several
+        directories: combined size, its sub-modules, what it depends on outside
+        itself, and who depends on it. Use this instead of get_module_info when a
+        feature is split across bloc/data/presentation folders."""
+        return tools.get_feature(root, name)
+
+    @server.tool()
     def get_dependencies() -> dict[str, Any]:
         """List declared third-party dependencies with versions and dev flags."""
         return tools.get_dependencies(root)
+
+    @server.tool()
+    def get_health() -> dict[str, Any]:
+        """Report how much of the repo the graph actually resolved: overall
+        confidence, connected vs. isolated files, per-language coverage
+        (graphed vs. inventory-only), and warnings. Check this before trusting a
+        "safe to change" / "no consumers" verdict — low confidence means imports
+        may be unresolved and impact results under-report."""
+        return tools.get_health(root)
 
     @server.tool()
     def get_critical_files(limit: int = 10) -> dict[str, Any]:
@@ -80,11 +101,41 @@ def build_server(root: Path) -> FastMCP:
         return tools.get_critical_files(root, limit)
 
     @server.tool()
+    def get_hotspots(limit: int = 10) -> dict[str, Any]:
+        """List risk hotspots: files ranked by git churn × import in-degree — the
+        ones that both change often and are widely depended on. A sharper "what's
+        risky here" signal than in-degree alone. Requires git history; test/spec
+        files are excluded."""
+        return tools.get_hotspots(root, limit)
+
+    @server.tool()
     def explain_module(target: str) -> dict[str, Any]:
         """Explain a module by path or name (e.g. "auth"): its purpose,
         dependencies, consumers, critical files, blast radius, and a risk
         assessment for changing it. Generated from memory, no LLM."""
         return tools.explain_module(root, target)
+
+    @server.tool()
+    def record_note(text: str, scope: str | None = None) -> dict[str, Any]:
+        """Write a discovery back into memory for the next agent to inherit — a
+        non-obvious constraint, a gotcha, or the *why* behind something the code
+        doesn't say. Optionally scope it to a file/module path so it surfaces
+        when that area is explored. Persists across rebuilds."""
+        return tools.record_note(root, text, scope)
+
+    @server.tool()
+    def find_symbol(name: str) -> dict[str, Any]:
+        """Locate a class, function, or method by name: the file and line it's
+        defined at, and who references it. Use this instead of grepping +
+        reading files to answer "where is X defined / who calls it?"."""
+        return tools.find_symbol(root, name)
+
+    @server.tool()
+    def what_tests(target: str) -> dict[str, Any]:
+        """List the test files that cover a source file (by path or name): the
+        tests to run before/after editing it. Found via tests that import the
+        file and by test-name convention."""
+        return tools.what_tests(root, target)
 
     @server.tool()
     def analyze_impact(target: str) -> dict[str, Any]:

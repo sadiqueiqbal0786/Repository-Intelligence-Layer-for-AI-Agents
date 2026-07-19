@@ -35,6 +35,29 @@ class Pattern(BaseModel):
     evidence: str | None = None
 
 
+class DocBrief(BaseModel):
+    """A distilled pointer to a human-written doc that holds the project's
+    rationale — the "why" the code can't express (README, CLAUDE.md, ARCHITECTURE
+    …). Content is summarized, not copied wholesale, so the memory stays small."""
+
+    source: str  # repo-relative path
+    title: str
+    summary: str | None = None  # opening paragraph, trimmed
+    headings: list[str] = Field(default_factory=list)  # section headings
+
+
+class Note(BaseModel):
+    """A discovery an agent (or human) wrote back into memory for the next one —
+    the feedback loop that turns a static map into a growing brain. Persists
+    across rebuilds; optionally scoped to a file or module it's about."""
+
+    id: str
+    text: str
+    scope: str | None = None  # a file/module path this note is about, if any
+    created: str | None = None  # ISO date
+    source: str = "agent"  # "agent" | "human"
+
+
 class Contributor(BaseModel):
     name: str
     commits: int = 0
@@ -59,3 +82,5 @@ class Knowledge(BaseModel):
     decisions: list[Decision] = Field(default_factory=list)
     patterns: list[Pattern] = Field(default_factory=list)
     history: ProjectHistory = Field(default_factory=ProjectHistory)
+    docs: list[DocBrief] = Field(default_factory=list)
+    notes: list[Note] = Field(default_factory=list)

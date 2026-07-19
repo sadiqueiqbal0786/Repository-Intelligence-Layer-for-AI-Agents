@@ -91,6 +91,26 @@ def test_conventions(tmp_path: Path) -> None:
     assert "dependency_injection" in conv.patterns
 
 
+def test_dart_function_naming_is_camel_case_not_snake(tmp_path: Path) -> None:
+    """A Dart project reports camelCase functions (per-language), never the
+    language-agnostic snake_case that used to leak from a global tally."""
+    _write(tmp_path, "pubspec.yaml", "name: shop\n")
+    _write(
+        tmp_path,
+        "lib/service.dart",
+        "Future<void> loadItems() async {}\n"
+        "int computeTotal(int a, int b) => a + b;\n\n"
+        "class Cart {\n"
+        "  void addItem() {}\n"
+        "  void removeItem() {}\n"
+        "}\n",
+    )
+    conv = build_memory(tmp_path).conventions
+    assert conv.naming.functions == "camelCase"
+    assert conv.naming.classes == "PascalCase"  # Cart
+    assert conv.naming.functions_by_language.get("Dart") == "camelCase"
+
+
 def test_conventions_detects_layering_and_patterns(tmp_path: Path) -> None:
     _write(tmp_path, "pyproject.toml", '[project]\nname = "demo"\n')
     _write(tmp_path, "src/demo/domain/entities.py", "class Order:\n    pass\n")

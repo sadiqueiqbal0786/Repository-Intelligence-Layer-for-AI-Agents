@@ -5,6 +5,10 @@
 #   docker run --rm -i -v /path/to/repo:/repo repointel serve /repo
 FROM python:3.12-slim
 
+# git is needed for the knowledge layer's history (commits, contributors).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir uv
 
 WORKDIR /app

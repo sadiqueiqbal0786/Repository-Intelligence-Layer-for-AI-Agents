@@ -78,6 +78,90 @@ CODE_EXTENSIONS: dict[str, str] = {
     ".exs": "Elixir",
 }
 
+# Machine-GENERATED source: real files on disk, but not hand-written, so they
+# must not count toward LOC, class/function inventory, the import graph, or
+# "large module = risk" signals — they inflate every metric and swamp the actual
+# code (a freezed-heavy Dart module reads as thousands of LOC of codegen). We
+# still list them as files, just not as *source*. Matched by the conventional
+# double-suffix each code generator uses.
+GENERATED_SUFFIXES: tuple[str, ...] = (
+    ".g.dart",          # json_serializable, and most Dart builders
+    ".freezed.dart",    # freezed
+    ".gr.dart",         # auto_route
+    ".config.dart",     # injectable
+    ".mocks.dart",      # mockito
+    ".pb.dart", ".pbenum.dart", ".pbjson.dart", ".pbserver.dart",  # protobuf
+    ".g.cs",            # C# source generators
+    "_pb2.py", "_pb2_grpc.py",  # python protobuf
+    ".pb.go",           # go protobuf
+)
+
+
+def is_generated_source(rel: str) -> bool:
+    """Whether ``rel`` is machine-generated code (by suffix convention)."""
+    return rel.endswith(GENERATED_SUFFIXES)
+
+
+# Files that commonly hold secrets. RepoIntel's memory can be committed or
+# shared, so these are excluded from the walk entirely — never inventoried,
+# never read, never persisted. Templates (``.env.example`` etc.) are safe and
+# kept, since they carry structure without values.
+_ENV_SAFE_SUFFIXES: tuple[str, ...] = (
+    ".example", ".sample", ".template", ".dist", ".defaults", ".test",
+)
+_SECRET_SUFFIXES: tuple[str, ...] = (
+    ".pem", ".key", ".p12", ".pfx", ".keystore", ".jks", ".ppk", ".asc",
+)
+_SECRET_FILENAMES: frozenset[str] = frozenset(
+    {
+        ".netrc", ".pgpass", ".npmrc", ".pypirc", ".htpasswd",
+        "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
+        "credentials", "credentials.json", "secrets", "secrets.json",
+        "secrets.yaml", "secrets.yml", "service-account.json",
+    }
+)
+
+
+# Directory segments and filename shapes that mark a file as test/spec code.
+_TEST_DIR_SEGMENTS: frozenset[str] = frozenset(
+    {"test", "tests", "integration_test", "test_driver", "__tests__", "spec", "specs"}
+)
+_TEST_NAME_SUFFIXES: tuple[str, ...] = (
+    ".mocks.dart", ".spec.ts", ".spec.js", ".test.ts", ".test.js", ".test.tsx",
+)
+
+
+def is_test_path(rel: str) -> bool:
+    """Whether ``rel`` is test/spec code rather than shippable source.
+
+    Catches both a test *directory* (``test/``, ``__tests__/`` …) and test
+    *filename* conventions (``foo_test.dart``, ``test_foo.py``, ``x.mocks.dart``,
+    ``x.spec.ts``) so test infrastructure doesn't pollute risk rankings.
+    """
+    parts = rel.split("/")
+    if any(seg in _TEST_DIR_SEGMENTS for seg in parts[:-1]):
+        return True
+    name = parts[-1].lower()
+    if name.endswith(_TEST_NAME_SUFFIXES):
+        return True
+    stem = name.rsplit(".", 1)[0]
+    return stem.startswith("test_") or stem.endswith("_test")
+
+
+def is_sensitive_path(rel: str) -> bool:
+    """Whether ``rel`` likely holds secrets and must never be indexed/persisted.
+
+    Covers real dotenv files (``.env``, ``.env.local``, ``.env.production`` …)
+    but not templates (``.env.example``), private keys/keystores, and a handful
+    of well-known credential files.
+    """
+    name = rel.rsplit("/", 1)[-1].lower()
+    if name == ".env" or (name.startswith(".env.") and not name.endswith(_ENV_SAFE_SUFFIXES)):
+        return True
+    if name.endswith(_SECRET_SUFFIXES):
+        return True
+    return name in _SECRET_FILENAMES
+
 
 class RepoContext:
     """Cached, read-only view over a repository root.
@@ -100,7 +184,13 @@ class RepoContext:
         return (self.root / rel).exists()
 
     def read_text(self, rel: str) -> str | None:
-        """Read a file relative to the root, returning ``None`` if absent/unreadable."""
+        """Read a file relative to the root, returning ``None`` if absent/unreadable.
+
+        Refuses to read secret-bearing files (``.env``, keys, credentials) so
+        their contents can never be cached or persisted into memory.
+        """
+        if is_sensitive_path(rel):
+            return None
         if rel not in self._text_cache:
             target = self.root / rel
             try:
@@ -162,6 +252,8 @@ class RepoContext:
             if path.is_dir():
                 dirs.add(rel_posix)
                 continue
+            if is_sensitive_path(rel_posix):
+                continue  # secrets never enter the (shareable) memory
             if path.is_file():
                 try:
                     st = path.stat()

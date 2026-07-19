@@ -1,0 +1,15 @@
+# Host-specific / rebuilt inside the image — never copy into the build context.
+.venv/
+.git/
+.repointel/
+**/.repointel/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+build/
+dist/
+*.egg-info/
+.DS_Store

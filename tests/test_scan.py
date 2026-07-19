@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from repointel.scanners import scan_repo
+from repointel.scanners import resolve_project_root, scan_repo
 from repointel.storage.json import read_repository, repository_path, write_repository
 
 
@@ -92,6 +92,28 @@ def test_entry_points_and_configs(tmp_path: Path) -> None:
     assert "pyproject.toml" in inv.configs
 
 
+def test_secrets_are_never_indexed(tmp_path: Path) -> None:
+    """Secret-bearing files (.env, keys, credentials) must not enter memory,
+    which can be committed/shared. Value-free templates stay."""
+    _python_repo(tmp_path)
+    _write(tmp_path, ".env", "API_KEY=super-secret-value\n")
+    _write(tmp_path, ".env.production", "DB_PASSWORD=hunter2\n")
+    _write(tmp_path, ".env.example", "API_KEY=\n")
+    _write(tmp_path, "certs/server.key", "-----BEGIN PRIVATE KEY-----\n")
+    _write(tmp_path, "id_rsa", "-----BEGIN OPENSSH PRIVATE KEY-----\n")
+    inv = scan_repo(tmp_path)
+
+    indexed = {f.path for f in inv.files}
+    assert ".env" not in indexed
+    assert ".env.production" not in indexed
+    assert "certs/server.key" not in indexed
+    assert "id_rsa" not in indexed
+    # The template carries structure, not secrets — keep it.
+    assert ".env.example" in indexed
+    assert ".env" not in inv.configs
+    assert ".env.production" not in inv.configs
+
+
 def test_loc_counted(tmp_path: Path) -> None:
     _python_repo(tmp_path)
     inv = scan_repo(tmp_path)
@@ -151,6 +173,46 @@ def test_flutter_native_dirs_ignored(tmp_path: Path) -> None:
     assert set(inv.fingerprint.languages) == {"Dart"}
 
 
+def test_resolve_project_root(tmp_path: Path) -> None:
+    # Manifest at the given path -> unchanged (normal repo, zero behavior change).
+    _write(tmp_path, "pyproject.toml", '[project]\nname = "x"\n')
+    assert resolve_project_root(tmp_path) == tmp_path
+
+
+def test_resolve_project_root_nested(tmp_path: Path) -> None:
+    # No root manifest, exactly one subdir has one -> descend into it.
+    _write(tmp_path, "README.md", "# monorepo\n")
+    _write(tmp_path, "app/pubspec.yaml", "name: app\n")
+    assert resolve_project_root(tmp_path) == tmp_path / "app"
+
+
+def test_resolve_project_root_ambiguous_stays(tmp_path: Path) -> None:
+    # Several candidate subdirs -> don't guess, stay at the given path.
+    _write(tmp_path, "a/pubspec.yaml", "name: a\n")
+    _write(tmp_path, "b/package.json", "{}\n")
+    assert resolve_project_root(tmp_path) == tmp_path
+
+
+def test_scan_detects_nested_flutter_project(tmp_path: Path) -> None:
+    """Pointing at a repo whose Flutter app lives under app/ analyzes app/."""
+    _write(tmp_path, "README.md", "# monorepo\n")
+    _write(
+        tmp_path,
+        "app/pubspec.yaml",
+        "name: app\ndependencies:\n  flutter:\n    sdk: flutter\n  go_router: ^14.0.0\n",
+    )
+    _write(tmp_path, "app/lib/main.dart", "void main() {}\n")
+
+    inv = scan_repo(tmp_path)
+
+    assert inv.path == str(tmp_path / "app")  # resolved into the nested project
+    assert inv.fingerprint.language == "Dart"
+    assert inv.fingerprint.framework == "Flutter"
+    paths = {f.path for f in inv.files}
+    assert "lib/main.dart" in paths  # relative to the resolved root, not the repo root
+    assert "go_router" in {d.name for d in inv.dependencies}
+
+
 def test_storage_round_trip(tmp_path: Path) -> None:
     _python_repo(tmp_path)
     inv = scan_repo(tmp_path)
@@ -168,3 +230,60 @@ def test_storage_round_trip(tmp_path: Path) -> None:
 
 def test_read_missing_returns_none(tmp_path: Path) -> None:
     assert read_repository(tmp_path) is None
+
+
+def test_dart_subfolder_pubspec_is_detected(tmp_path: Path) -> None:
+    """A Flutter app under app/ in a MONOREPO (root has a sibling package, so
+    the analysis stays at the repo root) must still be detected: framework,
+    package manager, state management, databases, and dependencies all come
+    from the subfolder pubspec — which used to be missed entirely."""
+    _write(tmp_path, "server/pyproject.toml", '[project]\nname = "server"\n')
+    _write(tmp_path, "server/main.py", "x = 1\n")
+    _write(
+        tmp_path,
+        "app/pubspec.yaml",
+        "name: app\n"
+        "dependencies:\n"
+        "  flutter:\n"
+        "    sdk: flutter\n"
+        "  flutter_bloc: ^9.0.0\n"
+        "  cloud_firestore: ^5.0.0\n"
+        "dev_dependencies:\n"
+        "  flutter_test:\n"
+        "    sdk: flutter\n",
+    )
+    _write(tmp_path, "app/lib/main.dart", "void main() {}\n")
+    inv = scan_repo(tmp_path)
+
+    fp = inv.fingerprint
+    assert fp.framework == "Flutter"
+    assert fp.package_manager == "pub"
+    assert fp.state_management == "BLoC"
+    assert "Cloud Firestore" in fp.databases
+
+    dep_names = {d.name for d in inv.dependencies}
+    assert {"flutter_bloc", "cloud_firestore", "flutter_test"} <= dep_names
+    assert "app/lib/main.dart" in inv.entry_points
+
+
+def test_generated_dart_files_excluded_from_source_metrics(tmp_path: Path) -> None:
+    """Generated files stay listed but don't count as source: zero LOC, no
+    language, and not counted as a module's source file."""
+    _write(tmp_path, "pubspec.yaml", "name: shop\n")
+    _write(tmp_path, "lib/user.dart", "class User {}\n" * 5)          # 5 LOC of real code
+    _write(tmp_path, "lib/user.freezed.dart", "class _$U {}\n" * 900)  # 900 LOC of codegen
+    _write(tmp_path, "lib/user.g.dart", "x\n" * 500)
+    inv = scan_repo(tmp_path)
+
+    by_path = {f.path: f for f in inv.files}
+    # Still listed as files…
+    assert "lib/user.freezed.dart" in by_path
+    # …but non-source: no language, zero LOC.
+    assert by_path["lib/user.freezed.dart"].language is None
+    assert by_path["lib/user.freezed.dart"].loc == 0
+    assert by_path["lib/user.g.dart"].loc == 0
+    # total_loc counts only the hand-written file, not the ~1400 generated lines.
+    assert inv.total_loc == 5
+    # The lib module reports a single source file, not three.
+    lib = next(m for m in inv.modules if m.path == "lib")
+    assert lib.file_count == 1

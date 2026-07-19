@@ -6,7 +6,7 @@ from pathlib import Path
 
 from repointel.graph.builder.dart import (
     DartImportResolver,
-    dart_package_name,
+    dart_packages,
     parse_dart_file,
 )
 from repointel.graph.builder.parsed import ParsedFile
@@ -18,7 +18,7 @@ class DartParser:
     language = "Dart"
 
     def make_resolver(self, files: set[str], root: Path) -> DartImportResolver:
-        return DartImportResolver(files, dart_package_name(root))
+        return DartImportResolver(files, dart_packages(root))
 
     def parse(self, path: str, source: str, resolver: object) -> ParsedFile | None:
         assert isinstance(resolver, DartImportResolver)

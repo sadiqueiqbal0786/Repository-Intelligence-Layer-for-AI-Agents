@@ -10,7 +10,14 @@ Public surface:
 from __future__ import annotations
 
 from repointel.scanners.base import RepoContext, Scanner
-from repointel.scanners.orchestrator import fingerprint_repo, scan_repo
+from repointel.scanners.orchestrator import fingerprint_repo, resolve_project_root, scan_repo
 from repointel.scanners.registry import SCANNERS
 
-__all__ = ["SCANNERS", "RepoContext", "Scanner", "fingerprint_repo", "scan_repo"]
+__all__ = [
+    "SCANNERS",
+    "RepoContext",
+    "Scanner",
+    "fingerprint_repo",
+    "resolve_project_root",
+    "scan_repo",
+]

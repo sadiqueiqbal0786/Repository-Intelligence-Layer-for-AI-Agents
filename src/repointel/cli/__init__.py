@@ -16,9 +16,11 @@ from repointel.cli.commands import analyze as analyze_command
 from repointel.cli.commands import benchmark as benchmark_command
 from repointel.cli.commands import build as build_command
 from repointel.cli.commands import context as context_command
+from repointel.cli.commands import eval as eval_command
 from repointel.cli.commands import explain as explain_command
 from repointel.cli.commands import graph as graph_command
 from repointel.cli.commands import impact as impact_command
+from repointel.cli.commands import init as init_command
 from repointel.cli.commands import knowledge as knowledge_command
 from repointel.cli.commands import scan as scan_command
 from repointel.cli.commands import serve as serve_command
@@ -33,6 +35,7 @@ app = typer.Typer(
 console = Console()
 
 # Register commands.
+app.command()(init_command.init)
 app.command()(analyze_command.analyze)
 app.command()(scan_command.scan)
 app.command()(graph_command.graph)
@@ -44,6 +47,7 @@ app.command()(knowledge_command.knowledge)
 app.command()(knowledge_command.decide)
 app.command()(context_command.context)
 app.command()(benchmark_command.benchmark)
+app.command()(eval_command.eval)
 app.command()(serve_command.serve)
 
 

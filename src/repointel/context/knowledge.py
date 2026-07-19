@@ -18,14 +18,16 @@ from __future__ import annotations
 import re
 import subprocess
 from datetime import date as _date
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from repointel.models import (
     ArchitectureSummary,
     Contributor,
     Conventions,
     Decision,
+    DocBrief,
     Knowledge,
+    Note,
     Pattern,
     ProjectHistory,
 )
@@ -64,15 +66,19 @@ def build_knowledge(
     architecture: ArchitectureSummary | None = None,
     previous: Knowledge | None = None,
 ) -> Knowledge:
-    """Assemble the knowledge layer, preserving manually recorded decisions."""
+    """Assemble the knowledge layer, preserving written-back decisions + notes."""
     decisions = discover_decisions(root)
+    notes: list[Note] = []
     if previous is not None:
         manual = [d for d in previous.decisions if d.source == "manual"]
         decisions = _dedupe_decisions([*decisions, *manual])
+        notes = list(previous.notes)  # agent write-backs survive rebuilds
     return Knowledge(
         decisions=decisions,
         patterns=infer_patterns(conventions, architecture),
         history=project_history(root),
+        docs=discover_docs(root),
+        notes=notes,
     )
 
 
@@ -111,6 +117,45 @@ def record_decision(
     knowledge.decisions.append(decision)
     write_knowledge(knowledge, root)
     return decision
+
+
+def record_note(
+    root: Path, text: str, *, scope: str | None = None, source: str = "agent"
+) -> Note:
+    """Write an agent/human discovery back into durable memory and persist it.
+
+    This is the feedback loop: what one agent learns ("this endpoint must write
+    to the default DB, not the named one") is inherited by the next, instead of
+    every session re-discovering it. Notes survive rebuilds.
+    """
+    root = Path(root)
+    knowledge = load_knowledge(root) or Knowledge()
+
+    existing = {n.id for n in knowledge.notes}
+    base = _slugify(text)[:40] or "note"
+    note_id, suffix = base, 2
+    while note_id in existing:
+        note_id, suffix = f"{base}-{suffix}", suffix + 1
+
+    note = Note(
+        id=note_id,
+        text=text,
+        scope=scope,
+        created=_date.today().isoformat(),
+        source=source,
+    )
+    knowledge.notes.append(note)
+    write_knowledge(knowledge, root)
+    return note
+
+
+def notes_for_scope(knowledge: Knowledge, scope: str) -> list[Note]:
+    """Notes attached to ``scope`` or one of its parent paths (path-prefix match)."""
+    matched: list[Note] = []
+    for note in knowledge.notes:
+        if note.scope and (scope == note.scope or scope.startswith(f"{note.scope}/")):
+            matched.append(note)
+    return matched
 
 
 # ---- decisions ---------------------------------------------------------------
@@ -194,6 +239,85 @@ def _dedupe_decisions(decisions: list[Decision]) -> list[Decision]:
     return unique
 
 
+# ---- human docs (the "why") --------------------------------------------------
+
+# Doc files that carry project rationale, in priority order. The graph can't
+# derive intent — it lives in these hand-written files, so they belong in memory.
+_DOC_CANDIDATES: tuple[str, ...] = (
+    "README.md",
+    "README.rst",
+    "CLAUDE.md",
+    ".claude/CLAUDE.md",
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "docs/ARCHITECTURE.md",
+    "CONTRIBUTING.md",
+    "docs/README.md",
+)
+_DOC_LIMIT = 6
+_SUMMARY_CHARS = 600
+_HEADING_LIMIT = 20
+
+_MD_HEADING_RE = re.compile(r"^#{1,3}\s+(.+?)\s*#*$", re.MULTILINE)
+
+
+def discover_docs(root: Path) -> list[DocBrief]:
+    """Ingest the human-written docs that hold the project's rationale.
+
+    Each is distilled to a title, an opening-paragraph summary and its section
+    headings — enough for an agent to know what's there and jump to it, without
+    copying whole files into memory.
+    """
+    root = Path(root)
+    briefs: list[DocBrief] = []
+    for rel in _DOC_CANDIDATES:
+        path = root / rel
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        brief = _summarize_doc(text, rel)
+        if brief is not None:
+            briefs.append(brief)
+        if len(briefs) >= _DOC_LIMIT:
+            break
+    return briefs
+
+
+def _summarize_doc(text: str, rel: str) -> DocBrief | None:
+    if not text.strip():
+        return None
+    headings = [h.strip() for h in _MD_HEADING_RE.findall(text)]
+    title = headings[0] if headings else PurePosixPath(rel).stem
+    summary = _first_paragraph(text)
+    return DocBrief(
+        source=rel,
+        title=title,
+        summary=summary,
+        headings=headings[1 : _HEADING_LIMIT + 1],  # drop the title heading
+    )
+
+
+def _first_paragraph(text: str) -> str | None:
+    """The first real prose paragraph — skipping headings, badges and blank lines."""
+    paragraph: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            if paragraph:
+                break
+            continue
+        if line.startswith(("#", "!", "<", "[!", "---", "===", "```")):
+            continue  # heading, badge/image, HTML, admonition, rule, fence
+        paragraph.append(line)
+    if not paragraph:
+        return None
+    summary = " ".join(paragraph)
+    return summary[:_SUMMARY_CHARS].rstrip() + ("…" if len(summary) > _SUMMARY_CHARS else "")
+
+
 # ---- patterns ----------------------------------------------------------------
 
 
@@ -260,9 +384,17 @@ def infer_patterns(
 
 
 def project_history(root: Path) -> ProjectHistory:
-    """Derive project evolution from git; empty when ``root`` is not a git repo."""
+    """Derive project evolution from git; empty when ``root`` is not inside a git
+    work tree.
+
+    Uses ``git rev-parse`` rather than checking for a ``.git`` directory, so it
+    also works when ``root`` is a *subdirectory* of the repo (a monorepo package,
+    e.g. ``app/`` next to the repo-root ``.git``) and degrades gracefully when the
+    ``git`` binary is absent.
+    """
     root = Path(root)
-    if not (root / ".git").exists():
+    inside = _git(root, "rev-parse", "--is-inside-work-tree")
+    if inside is None or inside.strip() != "true":
         return ProjectHistory(is_git=False)
 
     total = _git(root, "rev-list", "--count", "HEAD")
@@ -277,6 +409,44 @@ def project_history(root: Path) -> ProjectHistory:
     if log := _git(root, "log", "-n", "20", "--format=%s"):
         history.recent_commits = [line for line in log.splitlines() if line.strip()]
     return history
+
+
+def head_commit(root: Path) -> str | None:
+    """The current ``HEAD`` commit SHA, or ``None`` outside a git work tree."""
+    out = _git(Path(root), "rev-parse", "HEAD")
+    return out.strip() if out else None
+
+
+def file_churn(root: Path, max_commits: int = 1000) -> dict[str, int]:
+    """Map each file to how many of the last ``max_commits`` commits touched it.
+
+    Churn is the coupling/instability signal the import graph can't see: a file
+    edited in many commits is where change concentrates. Combined with import
+    in-degree it yields real risk hotspots (a heavily-imported file that also
+    churns a lot), better than in-degree alone. Paths are ``--relative`` to
+    ``root`` so a nested project (``app/``) reports its own files. Empty outside
+    a git work tree.
+    """
+    out = _git(
+        Path(root), "log", f"-n{max_commits}", "--relative", "--name-only", "--format="
+    )
+    if not out:
+        return {}
+    churn: dict[str, int] = {}
+    for line in out.splitlines():
+        path = line.strip()
+        if path:
+            churn[path] = churn.get(path, 0) + 1
+    return churn
+
+
+def changed_files_since(root: Path, commit: str) -> int | None:
+    """How many tracked files differ between ``commit`` and the working tree
+    (committed + uncommitted). ``None`` if the diff can't be computed."""
+    out = _git(Path(root), "diff", "--name-only", commit)
+    if out is None:
+        return None
+    return len([line for line in out.splitlines() if line.strip()])
 
 
 def _first_commit_date(root: Path) -> str | None:
@@ -328,9 +498,15 @@ def _slugify(text: str) -> str:
 
 __all__ = [
     "build_knowledge",
+    "changed_files_since",
     "discover_decisions",
+    "discover_docs",
+    "file_churn",
+    "head_commit",
     "infer_patterns",
     "load_knowledge",
+    "notes_for_scope",
     "project_history",
     "record_decision",
+    "record_note",
 ]
