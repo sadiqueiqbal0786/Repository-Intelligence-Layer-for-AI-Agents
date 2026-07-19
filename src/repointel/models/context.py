@@ -36,6 +36,7 @@ class ContextPack(BaseModel):
     history: str | None = None
     confidence: str | None = None  # graph-coverage self-grade: high|medium|low
     warnings: list[str] = Field(default_factory=list)  # fail-loud trust caveats
+    stale: bool = False  # memory drifted from the working tree (live check)
 
 
 class BenchmarkResult(BaseModel):

@@ -79,6 +79,7 @@ def build_context_pack(
 def context_pack(root: Path) -> ContextPack | None:
     """Load (building if needed) and assemble the context pack for ``root``."""
     from repointel.context.memory import build_memory, persist_memory
+    from repointel.context.staleness import assess_staleness
     from repointel.scanners import resolve_project_root
     from repointel.storage.json import (
         read_architecture,
@@ -97,7 +98,7 @@ def context_pack(root: Path) -> ContextPack | None:
     inventory = read_repository(root)
     if repo is None or inventory is None:
         return None
-    return build_context_pack(
+    pack = build_context_pack(
         repo,
         read_architecture(root) or ArchitectureSummary(),
         read_modules(root) or ModulesDoc(path=str(root)),
@@ -105,6 +106,13 @@ def context_pack(root: Path) -> ContextPack | None:
         read_knowledge(root) or Knowledge(),
         inventory,
     )
+    # Staleness is a *live* comparison to the working tree, so it's added here at
+    # read time rather than baked into the persisted pack.
+    freshness = assess_staleness(root, repo.built_at_commit)
+    if freshness["message"]:
+        pack.stale = bool(freshness["stale"])
+        pack.warnings = [*pack.warnings, freshness["message"]]
+    return pack
 
 
 def render_context_markdown(pack: ContextPack) -> str:

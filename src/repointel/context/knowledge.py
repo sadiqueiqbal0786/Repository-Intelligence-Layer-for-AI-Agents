@@ -287,6 +287,21 @@ def project_history(root: Path) -> ProjectHistory:
     return history
 
 
+def head_commit(root: Path) -> str | None:
+    """The current ``HEAD`` commit SHA, or ``None`` outside a git work tree."""
+    out = _git(Path(root), "rev-parse", "HEAD")
+    return out.strip() if out else None
+
+
+def changed_files_since(root: Path, commit: str) -> int | None:
+    """How many tracked files differ between ``commit`` and the working tree
+    (committed + uncommitted). ``None`` if the diff can't be computed."""
+    out = _git(Path(root), "diff", "--name-only", commit)
+    if out is None:
+        return None
+    return len([line for line in out.splitlines() if line.strip()])
+
+
 def _first_commit_date(root: Path) -> str | None:
     roots = _git(root, "rev-list", "--max-parents=0", "HEAD")
     if not roots or not roots.split():
@@ -336,7 +351,9 @@ def _slugify(text: str) -> str:
 
 __all__ = [
     "build_knowledge",
+    "changed_files_since",
     "discover_decisions",
+    "head_commit",
     "infer_patterns",
     "load_knowledge",
     "project_history",

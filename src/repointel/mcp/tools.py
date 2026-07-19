@@ -156,12 +156,18 @@ def get_health(root: Path) -> dict:
     trusting a "safe to change" / "no consumers" verdict — low confidence means
     imports may be unresolved and those verdicts under-report.
     """
+    from repointel.context.staleness import assess_staleness
+
     ensure_memory(root)
     repo = read_repo_summary(root)
     assert repo is not None
-    if repo.coverage is None:
-        return {"confidence": "unknown", "warnings": [], "languages": []}
-    return repo.coverage.model_dump()
+    health = (
+        repo.coverage.model_dump()
+        if repo.coverage is not None
+        else {"confidence": "unknown", "warnings": [], "languages": []}
+    )
+    health["freshness"] = assess_staleness(Path(root), repo.built_at_commit)
+    return health
 
 
 def get_critical_files(root: Path, limit: int = 10) -> dict:

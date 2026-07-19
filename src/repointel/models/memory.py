@@ -155,6 +155,7 @@ class RepoSummary(BaseModel):
     entry_points: list[str] = Field(default_factory=list)
     artifacts: list[str] = Field(default_factory=list)
     coverage: GraphCoverage | None = None
+    built_at_commit: str | None = None  # git HEAD when this memory was built
 
 
 class RepositoryMemory(BaseModel):

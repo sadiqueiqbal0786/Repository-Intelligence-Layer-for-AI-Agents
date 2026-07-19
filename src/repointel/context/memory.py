@@ -14,7 +14,7 @@ from pathlib import Path
 from repointel.context.architecture import summarize_architecture
 from repointel.context.conventions import detect_conventions
 from repointel.context.coverage import assess_coverage
-from repointel.context.knowledge import build_knowledge
+from repointel.context.knowledge import build_knowledge, head_commit
 from repointel.context.summary import summarize_modules
 from repointel.graph.builder import assemble_graph, parse_sources
 from repointel.graph.builder.cache import BuildCache, build_cache
@@ -113,7 +113,7 @@ def _assemble_bundle(
     from repointel.plugins import default_registry
 
     coverage = assess_coverage(inventory, graph, default_registry().parseable_languages())
-    repo = _summarize_repo(inventory, graph, coverage)
+    repo = _summarize_repo(inventory, graph, coverage, head_commit(root))
     cache = build_cache(root, inventory, parsed)
     return MemoryBundle(
         inventory=inventory,
@@ -161,7 +161,10 @@ def load_memory(root: Path) -> RepositoryMemory | None:
 
 
 def _summarize_repo(
-    inventory: RepositoryInventory, graph: ArchitectureGraph, coverage: GraphCoverage
+    inventory: RepositoryInventory,
+    graph: ArchitectureGraph,
+    coverage: GraphCoverage,
+    built_at_commit: str | None,
 ) -> RepoSummary:
     return RepoSummary(
         path=inventory.path,
@@ -176,6 +179,7 @@ def _summarize_repo(
         entry_points=list(inventory.entry_points),
         artifacts=list(_ARTIFACTS),
         coverage=coverage,
+        built_at_commit=built_at_commit,
     )
 
 
