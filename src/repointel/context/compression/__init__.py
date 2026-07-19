@@ -75,6 +75,7 @@ def build_context_pack(
         warnings=list(repo.coverage.warnings) if repo.coverage else [],
         summary=knowledge.docs[0].summary if knowledge.docs else None,
         doc_sources=[d.source for d in knowledge.docs],
+        provenance=dict(fp.evidence),
     )
 
 
@@ -162,6 +163,9 @@ def render_context_markdown(pack: ContextPack) -> str:
     _section(lines, "Decisions", pack.decisions)
     if pack.history:
         lines += ["", "## History", pack.history]
+    if pack.provenance:
+        lines += ["", "## Sources"]
+        lines += [f"- {fact}: {evidence}" for fact, evidence in pack.provenance.items()]
     return "\n".join(lines) + "\n"
 
 

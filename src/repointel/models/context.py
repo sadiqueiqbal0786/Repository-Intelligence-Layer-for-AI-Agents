@@ -39,6 +39,10 @@ class ContextPack(BaseModel):
     stale: bool = False  # memory drifted from the working tree (live check)
     summary: str | None = None  # the "why", distilled from README/CLAUDE.md
     doc_sources: list[str] = Field(default_factory=list)  # human docs in memory
+    provenance: dict[str, str] = Field(
+        default_factory=dict,
+        description="Where each identity fact came from (fact -> evidence).",
+    )
 
 
 class BenchmarkResult(BaseModel):
