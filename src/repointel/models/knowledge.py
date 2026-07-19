@@ -46,6 +46,18 @@ class DocBrief(BaseModel):
     headings: list[str] = Field(default_factory=list)  # section headings
 
 
+class Note(BaseModel):
+    """A discovery an agent (or human) wrote back into memory for the next one —
+    the feedback loop that turns a static map into a growing brain. Persists
+    across rebuilds; optionally scoped to a file or module it's about."""
+
+    id: str
+    text: str
+    scope: str | None = None  # a file/module path this note is about, if any
+    created: str | None = None  # ISO date
+    source: str = "agent"  # "agent" | "human"
+
+
 class Contributor(BaseModel):
     name: str
     commits: int = 0
@@ -71,3 +83,4 @@ class Knowledge(BaseModel):
     patterns: list[Pattern] = Field(default_factory=list)
     history: ProjectHistory = Field(default_factory=ProjectHistory)
     docs: list[DocBrief] = Field(default_factory=list)
+    notes: list[Note] = Field(default_factory=list)

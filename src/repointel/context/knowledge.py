@@ -27,6 +27,7 @@ from repointel.models import (
     Decision,
     DocBrief,
     Knowledge,
+    Note,
     Pattern,
     ProjectHistory,
 )
@@ -65,16 +66,19 @@ def build_knowledge(
     architecture: ArchitectureSummary | None = None,
     previous: Knowledge | None = None,
 ) -> Knowledge:
-    """Assemble the knowledge layer, preserving manually recorded decisions."""
+    """Assemble the knowledge layer, preserving written-back decisions + notes."""
     decisions = discover_decisions(root)
+    notes: list[Note] = []
     if previous is not None:
         manual = [d for d in previous.decisions if d.source == "manual"]
         decisions = _dedupe_decisions([*decisions, *manual])
+        notes = list(previous.notes)  # agent write-backs survive rebuilds
     return Knowledge(
         decisions=decisions,
         patterns=infer_patterns(conventions, architecture),
         history=project_history(root),
         docs=discover_docs(root),
+        notes=notes,
     )
 
 
@@ -113,6 +117,45 @@ def record_decision(
     knowledge.decisions.append(decision)
     write_knowledge(knowledge, root)
     return decision
+
+
+def record_note(
+    root: Path, text: str, *, scope: str | None = None, source: str = "agent"
+) -> Note:
+    """Write an agent/human discovery back into durable memory and persist it.
+
+    This is the feedback loop: what one agent learns ("this endpoint must write
+    to the default DB, not the named one") is inherited by the next, instead of
+    every session re-discovering it. Notes survive rebuilds.
+    """
+    root = Path(root)
+    knowledge = load_knowledge(root) or Knowledge()
+
+    existing = {n.id for n in knowledge.notes}
+    base = _slugify(text)[:40] or "note"
+    note_id, suffix = base, 2
+    while note_id in existing:
+        note_id, suffix = f"{base}-{suffix}", suffix + 1
+
+    note = Note(
+        id=note_id,
+        text=text,
+        scope=scope,
+        created=_date.today().isoformat(),
+        source=source,
+    )
+    knowledge.notes.append(note)
+    write_knowledge(knowledge, root)
+    return note
+
+
+def notes_for_scope(knowledge: Knowledge, scope: str) -> list[Note]:
+    """Notes attached to ``scope`` or one of its parent paths (path-prefix match)."""
+    matched: list[Note] = []
+    for note in knowledge.notes:
+        if note.scope and (scope == note.scope or scope.startswith(f"{note.scope}/")):
+            matched.append(note)
+    return matched
 
 
 # ---- decisions ---------------------------------------------------------------
@@ -462,6 +505,8 @@ __all__ = [
     "head_commit",
     "infer_patterns",
     "load_knowledge",
+    "notes_for_scope",
     "project_history",
     "record_decision",
+    "record_note",
 ]

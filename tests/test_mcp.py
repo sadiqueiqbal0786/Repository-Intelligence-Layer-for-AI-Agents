@@ -180,6 +180,28 @@ def test_hotspots_without_git_reports_unavailable(tmp_path: Path) -> None:
     assert result["hotspots"] == []
 
 
+def test_record_note_persists_and_surfaces_in_explain(tmp_path: Path) -> None:
+    _project(tmp_path)
+    out = tools.record_note(
+        tmp_path,
+        "models.py must stay import-free of the service layer",
+        scope="src/demo",
+    )
+    assert out["recorded"] is True
+
+    # Survives a rebuild and is exposed by get_knowledge.
+    from repointel.context.memory import build_memory, persist_memory
+
+    persist_memory(build_memory(tmp_path), tmp_path)
+    knowledge = tools.get_knowledge(tmp_path)
+    assert any("import-free" in n["text"] for n in knowledge["notes"])
+
+    # Scoped note is attached to the module explanation.
+    explanation = tools.explain_module(tmp_path, "demo")
+    assert "notes" in explanation
+    assert any("import-free" in n["text"] for n in explanation["notes"])
+
+
 def test_get_feature_aggregates_subtree(tmp_path: Path) -> None:
     """A feature spanning several dirs is reported as one aggregate view."""
     _write(tmp_path, "pubspec.yaml", "name: shop\n")
@@ -255,6 +277,7 @@ def test_server_registers_all_tools(tmp_path: Path) -> None:
         "get_critical_files",
         "find_symbol",
         "what_tests",
+        "record_note",
         "explain_module",
         "analyze_impact",
     }

@@ -23,6 +23,7 @@ from repointel.models.knowledge import (
     Decision,
     DocBrief,
     Knowledge,
+    Note,
     Pattern,
     ProjectHistory,
 )
@@ -66,6 +67,7 @@ __all__ = [
     "ModuleSummary",
     "ModulesDoc",
     "NamingConventions",
+    "Note",
     "Pattern",
     "ProjectHistory",
     "RepoSummary",

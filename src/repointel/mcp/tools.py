@@ -123,6 +123,8 @@ def explain_module(root: Path, target: str) -> dict:
     Generated from repository memory without an LLM. Returns an ``error`` with
     the available module list when ``target`` doesn't match.
     """
+    from repointel.context.knowledge import notes_for_scope
+
     ensure_memory(root)
     explanation = explain_target(root, target)
     if explanation is None:
@@ -130,7 +132,14 @@ def explain_module(root: Path, target: str) -> dict:
             "error": f"module '{target}' not found",
             "available": available_modules(root),
         }
-    return explanation.model_dump()
+    result = explanation.model_dump()
+    # Surface any agent write-backs scoped to this module — the inherited "why".
+    knowledge = read_knowledge(root)
+    if knowledge is not None:
+        notes = notes_for_scope(knowledge, explanation.module)
+        if notes:
+            result["notes"] = [n.model_dump() for n in notes]
+    return result
 
 
 def analyze_impact(root: Path, target: str) -> dict:
@@ -229,6 +238,21 @@ def get_hotspots(root: Path, limit: int = 10) -> dict:
     }
 
 
+def record_note(root: Path, text: str, scope: str | None = None) -> dict:
+    """Write a discovery back into memory for the next agent to inherit.
+
+    Use this when you learn something the code doesn't say — a non-obvious
+    constraint, a gotcha, why something is the way it is. Optionally ``scope`` it
+    to a file/module path so it surfaces when that area is explored. Persists
+    across rebuilds.
+    """
+    from repointel.context.knowledge import record_note as _record_note
+
+    ensure_memory(root)
+    note = _record_note(Path(root), text, scope=scope)
+    return {"recorded": True, "note": note.model_dump()}
+
+
 def find_symbol(root: Path, name: str) -> dict:
     """Locate a class/function/method by name: where it's defined and who
     references it.
@@ -322,5 +346,6 @@ __all__ = [
     "get_knowledge",
     "get_module_info",
     "get_project_summary",
+    "record_note",
     "what_tests",
 ]

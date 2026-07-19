@@ -116,6 +116,14 @@ def build_server(root: Path) -> FastMCP:
         return tools.explain_module(root, target)
 
     @server.tool()
+    def record_note(text: str, scope: str | None = None) -> dict[str, Any]:
+        """Write a discovery back into memory for the next agent to inherit — a
+        non-obvious constraint, a gotcha, or the *why* behind something the code
+        doesn't say. Optionally scope it to a file/module path so it surfaces
+        when that area is explored. Persists across rebuilds."""
+        return tools.record_note(root, text, scope)
+
+    @server.tool()
     def find_symbol(name: str) -> dict[str, Any]:
         """Locate a class, function, or method by name: the file and line it's
         defined at, and who references it. Use this instead of grepping +
