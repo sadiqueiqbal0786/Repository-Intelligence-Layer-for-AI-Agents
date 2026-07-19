@@ -35,6 +35,17 @@ class Pattern(BaseModel):
     evidence: str | None = None
 
 
+class DocBrief(BaseModel):
+    """A distilled pointer to a human-written doc that holds the project's
+    rationale — the "why" the code can't express (README, CLAUDE.md, ARCHITECTURE
+    …). Content is summarized, not copied wholesale, so the memory stays small."""
+
+    source: str  # repo-relative path
+    title: str
+    summary: str | None = None  # opening paragraph, trimmed
+    headings: list[str] = Field(default_factory=list)  # section headings
+
+
 class Contributor(BaseModel):
     name: str
     commits: int = 0
@@ -59,3 +70,4 @@ class Knowledge(BaseModel):
     decisions: list[Decision] = Field(default_factory=list)
     patterns: list[Pattern] = Field(default_factory=list)
     history: ProjectHistory = Field(default_factory=ProjectHistory)
+    docs: list[DocBrief] = Field(default_factory=list)

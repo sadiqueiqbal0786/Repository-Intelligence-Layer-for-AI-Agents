@@ -73,6 +73,8 @@ def build_context_pack(
         history=_history_line(knowledge),
         confidence=repo.coverage.confidence if repo.coverage else None,
         warnings=list(repo.coverage.warnings) if repo.coverage else [],
+        summary=knowledge.docs[0].summary if knowledge.docs else None,
+        doc_sources=[d.source for d in knowledge.docs],
     )
 
 
@@ -136,6 +138,10 @@ def render_context_markdown(pack: ContextPack) -> str:
         lines.append(f"Graph confidence: {pack.confidence}")
     for warning in pack.warnings:
         lines.append(f"⚠️ {warning}")
+
+    if pack.summary:
+        docs = f" (from {', '.join(pack.doc_sources)})" if pack.doc_sources else ""
+        lines += ["", "## About", f"{pack.summary}{docs}"]
 
     conventions = _join(
         [

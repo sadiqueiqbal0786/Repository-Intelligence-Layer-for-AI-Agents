@@ -37,6 +37,8 @@ class ContextPack(BaseModel):
     confidence: str | None = None  # graph-coverage self-grade: high|medium|low
     warnings: list[str] = Field(default_factory=list)  # fail-loud trust caveats
     stale: bool = False  # memory drifted from the working tree (live check)
+    summary: str | None = None  # the "why", distilled from README/CLAUDE.md
+    doc_sources: list[str] = Field(default_factory=list)  # human docs in memory
 
 
 class BenchmarkResult(BaseModel):

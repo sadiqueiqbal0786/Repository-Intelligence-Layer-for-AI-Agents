@@ -21,6 +21,7 @@ from repointel.models.inventory import (
 from repointel.models.knowledge import (
     Contributor,
     Decision,
+    DocBrief,
     Knowledge,
     Pattern,
     ProjectHistory,
@@ -50,6 +51,7 @@ __all__ = [
     "Conventions",
     "Decision",
     "Dependency",
+    "DocBrief",
     "FileEntry",
     "Fingerprint",
     "GraphCoverage",

@@ -18,13 +18,14 @@ from __future__ import annotations
 import re
 import subprocess
 from datetime import date as _date
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from repointel.models import (
     ArchitectureSummary,
     Contributor,
     Conventions,
     Decision,
+    DocBrief,
     Knowledge,
     Pattern,
     ProjectHistory,
@@ -73,6 +74,7 @@ def build_knowledge(
         decisions=decisions,
         patterns=infer_patterns(conventions, architecture),
         history=project_history(root),
+        docs=discover_docs(root),
     )
 
 
@@ -192,6 +194,85 @@ def _dedupe_decisions(decisions: list[Decision]) -> list[Decision]:
         seen.add(decision.id)
         unique.append(decision)
     return unique
+
+
+# ---- human docs (the "why") --------------------------------------------------
+
+# Doc files that carry project rationale, in priority order. The graph can't
+# derive intent — it lives in these hand-written files, so they belong in memory.
+_DOC_CANDIDATES: tuple[str, ...] = (
+    "README.md",
+    "README.rst",
+    "CLAUDE.md",
+    ".claude/CLAUDE.md",
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "docs/ARCHITECTURE.md",
+    "CONTRIBUTING.md",
+    "docs/README.md",
+)
+_DOC_LIMIT = 6
+_SUMMARY_CHARS = 600
+_HEADING_LIMIT = 20
+
+_MD_HEADING_RE = re.compile(r"^#{1,3}\s+(.+?)\s*#*$", re.MULTILINE)
+
+
+def discover_docs(root: Path) -> list[DocBrief]:
+    """Ingest the human-written docs that hold the project's rationale.
+
+    Each is distilled to a title, an opening-paragraph summary and its section
+    headings — enough for an agent to know what's there and jump to it, without
+    copying whole files into memory.
+    """
+    root = Path(root)
+    briefs: list[DocBrief] = []
+    for rel in _DOC_CANDIDATES:
+        path = root / rel
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        brief = _summarize_doc(text, rel)
+        if brief is not None:
+            briefs.append(brief)
+        if len(briefs) >= _DOC_LIMIT:
+            break
+    return briefs
+
+
+def _summarize_doc(text: str, rel: str) -> DocBrief | None:
+    if not text.strip():
+        return None
+    headings = [h.strip() for h in _MD_HEADING_RE.findall(text)]
+    title = headings[0] if headings else PurePosixPath(rel).stem
+    summary = _first_paragraph(text)
+    return DocBrief(
+        source=rel,
+        title=title,
+        summary=summary,
+        headings=headings[1 : _HEADING_LIMIT + 1],  # drop the title heading
+    )
+
+
+def _first_paragraph(text: str) -> str | None:
+    """The first real prose paragraph — skipping headings, badges and blank lines."""
+    paragraph: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            if paragraph:
+                break
+            continue
+        if line.startswith(("#", "!", "<", "[!", "---", "===", "```")):
+            continue  # heading, badge/image, HTML, admonition, rule, fence
+        paragraph.append(line)
+    if not paragraph:
+        return None
+    summary = " ".join(paragraph)
+    return summary[:_SUMMARY_CHARS].rstrip() + ("…" if len(summary) > _SUMMARY_CHARS else "")
 
 
 # ---- patterns ----------------------------------------------------------------
@@ -376,6 +457,7 @@ __all__ = [
     "build_knowledge",
     "changed_files_since",
     "discover_decisions",
+    "discover_docs",
     "file_churn",
     "head_commit",
     "infer_patterns",
