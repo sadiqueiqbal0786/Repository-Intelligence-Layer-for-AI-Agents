@@ -75,6 +75,27 @@ def test_risk_assessment_present(tmp_path: Path) -> None:
     assert exp.risks  # always at least one rationale line
 
 
+def test_resolve_prefers_source_over_test_dir(tmp_path: Path) -> None:
+    """A bare name matching both lib/ source and a test dir resolves to source."""
+    _write(tmp_path, "pyproject.toml", '[project]\nname = "demo"\n')
+    _write(tmp_path, "src/demo/calendars/model.py", "class Calendar:\n    pass\n")
+    _write(tmp_path, "test/calendars/model_test.py", "def test_it():\n    pass\n")
+    exp = _explain(tmp_path, "calendars")
+    assert exp is not None
+    assert exp.module == "src/demo/calendars"
+    assert "test" not in exp.module.split("/")
+
+
+def test_resolve_prefers_shallowest_match(tmp_path: Path) -> None:
+    """Among non-test matches, the most canonical (shallowest) path wins."""
+    _write(tmp_path, "pyproject.toml", '[project]\nname = "demo"\n')
+    _write(tmp_path, "src/demo/models/user.py", "class User:\n    pass\n")
+    _write(tmp_path, "src/demo/feature/models/order.py", "class Order:\n    pass\n")
+    exp = _explain(tmp_path, "models")
+    assert exp is not None
+    assert exp.module == "src/demo/models"
+
+
 def test_explain_loads_memory_on_first_call(tmp_path: Path) -> None:
     _layered_project(tmp_path)
     # No prior build/persist — explain() must build memory itself.

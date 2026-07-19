@@ -7,7 +7,6 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
-from repointel.context.architecture import detect_architecture
 from repointel.models import (
     Dependency,
     FileEntry,
@@ -130,6 +129,11 @@ def _apply_fingerprint(ctx: RepoContext, fp: Fingerprint) -> None:
     for scanner in _scanners():
         if scanner.matches(ctx):
             scanner.fingerprint(ctx, fp)
+
+    # Deferred import: context.architecture imports scanners.base, so importing
+    # it at module load creates a scanners <-> context.architecture cycle that
+    # breaks depending on which module is imported first.
+    from repointel.context.architecture import detect_architecture
 
     detect_architecture(ctx, fp)
 

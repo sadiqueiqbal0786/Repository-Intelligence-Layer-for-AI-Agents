@@ -85,7 +85,7 @@ def build_explanation(
     inventory: RepositoryInventory,
 ) -> ModuleExplanation | None:
     """Assemble an explanation from already-loaded memory (pure function)."""
-    module = _resolve(modules.modules, target)
+    module = resolve_module(modules.modules, target)
     if module is None:
         return None
 
@@ -122,15 +122,39 @@ def build_explanation(
     )
 
 
-def _resolve(modules: list[ModuleSummary], query: str) -> ModuleSummary | None:
-    """Match a module by exact path, basename, or path suffix (cf. MCP tools)."""
+# Path segments that mark a directory as tests/specs rather than shippable
+# source. A bare name like ``calendars`` frequently exists under BOTH ``lib/src``
+# and ``test`` — resolving to the test copy yields a wrong explanation and a
+# dangerously false "no internal consumers — safe to change" verdict.
+_TEST_SEGMENTS: frozenset[str] = frozenset(
+    {"test", "tests", "integration_test", "test_driver", "__tests__", "spec", "specs"}
+)
+
+
+def _is_test_path(path: str) -> bool:
+    return any(seg in _TEST_SEGMENTS for seg in path.split("/"))
+
+
+def resolve_module(modules: list[ModuleSummary], query: str) -> ModuleSummary | None:
+    """Match a module by exact path, basename, or path suffix.
+
+    When several modules match a non-exact query, choose deterministically:
+    real source before test/spec dirs, then the shallowest (most canonical)
+    path, then lexical order. This keeps ``explain calendars`` on
+    ``lib/src/calendars`` rather than an incidental ``test/calendars``. Shared
+    with the MCP ``get_module_info`` tool so both resolve identically.
+    """
+    q = query.strip("/")
     for m in modules:
-        if m.path == query:
+        if m.path == q:
             return m
-    for m in modules:
-        if PurePosixPath(m.path).name == query or m.path.endswith(f"/{query}"):
-            return m
-    return None
+    candidates = [
+        m for m in modules if PurePosixPath(m.path).name == q or m.path.endswith(f"/{q}")
+    ]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda m: (_is_test_path(m.path), m.path.count("/"), m.path))
+    return candidates[0]
 
 
 def _critical_files(graph: ArchitectureGraph, own_files: set[str]) -> list[str]:
@@ -202,4 +226,4 @@ def _infer_role(key_classes: list[str]) -> str | None:
     return None
 
 
-__all__ = ["available_modules", "build_explanation", "explain"]
+__all__ = ["available_modules", "build_explanation", "explain", "resolve_module"]

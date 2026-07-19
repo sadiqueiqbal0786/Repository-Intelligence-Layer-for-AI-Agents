@@ -8,10 +8,10 @@ and usable as a plain library API.
 
 from __future__ import annotations
 
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from repointel.context.compression import context_pack
-from repointel.context.explanation import available_modules
+from repointel.context.explanation import available_modules, resolve_module
 from repointel.context.explanation import explain as explain_target
 from repointel.context.impact import analyze_impact as analyze_impact_target
 from repointel.context.impact import impact_candidates
@@ -171,14 +171,12 @@ def get_critical_files(root: Path, limit: int = 10) -> dict:
 
 
 def _find_module(modules: list, query: str):
-    """Match a module by exact path, basename, or path suffix."""
-    for m in modules:
-        if m.path == query:
-            return m
-    for m in modules:
-        if PurePosixPath(m.path).name == query or m.path.endswith(f"/{query}"):
-            return m
-    return None
+    """Match a module by exact path, basename, or path suffix.
+
+    Delegates to the shared resolver so ``get_module_info`` prefers real source
+    over test/spec dirs exactly like ``explain_module`` does.
+    """
+    return resolve_module(modules, query)
 
 
 __all__ = [
