@@ -71,6 +71,8 @@ def build_context_pack(
         top_dependencies=_top_dependencies(inventory),
         decisions=[d.title for d in knowledge.decisions[:_DECISION_LIMIT]],
         history=_history_line(knowledge),
+        confidence=repo.coverage.confidence if repo.coverage else None,
+        warnings=list(repo.coverage.warnings) if repo.coverage else [],
     )
 
 
@@ -122,6 +124,10 @@ def render_context_markdown(pack: ContextPack) -> str:
         f"{pack.file_count} files · {pack.module_count} modules · "
         f"{pack.total_loc} LOC · {pack.dependency_count} deps"
     )
+    if pack.confidence:
+        lines.append(f"Graph confidence: {pack.confidence}")
+    for warning in pack.warnings:
+        lines.append(f"⚠️ {warning}")
 
     conventions = _join(
         [

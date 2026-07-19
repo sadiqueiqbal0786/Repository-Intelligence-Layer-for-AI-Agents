@@ -158,6 +158,14 @@ def test_critical_files(tmp_path: Path) -> None:
     assert top["imported_by"] == 2
 
 
+def test_get_health(tmp_path: Path) -> None:
+    _project(tmp_path)
+    health = tools.get_health(tmp_path)
+    assert health["confidence"] in {"high", "medium", "low", "unknown"}
+    assert "warnings" in health
+    assert "languages" in health
+
+
 def test_server_registers_all_tools(tmp_path: Path) -> None:
     _project(tmp_path)
     server = build_server(tmp_path)
@@ -168,6 +176,7 @@ def test_server_registers_all_tools(tmp_path: Path) -> None:
         "get_architecture",
         "get_conventions",
         "get_knowledge",
+        "get_health",
         "get_module_info",
         "get_dependencies",
         "get_critical_files",

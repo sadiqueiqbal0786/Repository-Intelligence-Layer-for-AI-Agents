@@ -110,6 +110,35 @@ class Conventions(BaseModel):
     testing: TestingConvention = Field(default_factory=TestingConvention)
 
 
+class LanguageCoverage(BaseModel):
+    """How completely one language is understood in the memory."""
+
+    language: str
+    files: int = 0
+    graphed: bool = False  # False => inventory only, no dependency graph
+
+
+class GraphCoverage(BaseModel):
+    """``coverage.json`` — a fail-loud self-assessment of how much of the repo
+    the graph actually resolved, so an agent knows how far to trust it.
+
+    ``connectivity`` is the fraction of graphed source files that have at least
+    one import edge; a value near zero on a real app is the tell-tale of
+    unresolved imports (e.g. a package manifest that wasn't found), the exact
+    failure mode that otherwise ships silently.
+    """
+
+    confidence: str = "unknown"  # "high" | "medium" | "low" | "unknown"
+    source_files: int = 0  # files in a graphed language
+    connected_files: int = 0  # of those, ones with >=1 import edge
+    isolated_files: int = 0  # of those, ones with no import edge
+    connectivity: float = 0.0  # connected_files / source_files (0..1)
+    import_edges: int = 0
+    languages: list[LanguageCoverage] = Field(default_factory=list)
+    ungraphed_languages: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class RepoSummary(BaseModel):
     """``repo.json`` — the small, loadable overview / manifest."""
 
@@ -125,6 +154,7 @@ class RepoSummary(BaseModel):
     edge_count: int = 0
     entry_points: list[str] = Field(default_factory=list)
     artifacts: list[str] = Field(default_factory=list)
+    coverage: GraphCoverage | None = None
 
 
 class RepositoryMemory(BaseModel):

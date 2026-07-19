@@ -13,6 +13,7 @@ from pathlib import Path
 
 from repointel.context.architecture import summarize_architecture
 from repointel.context.conventions import detect_conventions
+from repointel.context.coverage import assess_coverage
 from repointel.context.knowledge import build_knowledge
 from repointel.context.summary import summarize_modules
 from repointel.graph.builder import assemble_graph, parse_sources
@@ -22,6 +23,7 @@ from repointel.models import (
     ArchitectureGraph,
     ArchitectureSummary,
     Conventions,
+    GraphCoverage,
     Knowledge,
     ModulesDoc,
     RepositoryInventory,
@@ -108,7 +110,10 @@ def _assemble_bundle(
     knowledge = build_knowledge(
         root, conventions=conventions, architecture=architecture, previous=read_knowledge(root)
     )
-    repo = _summarize_repo(inventory, graph)
+    from repointel.plugins import default_registry
+
+    coverage = assess_coverage(inventory, graph, default_registry().parseable_languages())
+    repo = _summarize_repo(inventory, graph, coverage)
     cache = build_cache(root, inventory, parsed)
     return MemoryBundle(
         inventory=inventory,
@@ -155,7 +160,9 @@ def load_memory(root: Path) -> RepositoryMemory | None:
     )
 
 
-def _summarize_repo(inventory: RepositoryInventory, graph: ArchitectureGraph) -> RepoSummary:
+def _summarize_repo(
+    inventory: RepositoryInventory, graph: ArchitectureGraph, coverage: GraphCoverage
+) -> RepoSummary:
     return RepoSummary(
         path=inventory.path,
         name=Path(inventory.path).name,
@@ -168,6 +175,7 @@ def _summarize_repo(inventory: RepositoryInventory, graph: ArchitectureGraph) ->
         edge_count=graph.edge_count,
         entry_points=list(inventory.entry_points),
         artifacts=list(_ARTIFACTS),
+        coverage=coverage,
     )
 
 

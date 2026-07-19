@@ -5,7 +5,7 @@ SDK is imported lazily inside :func:`build_server` so importing this module (and
 the rest of the package) never hard-requires the SDK.
 
 Tools: ``get_context``, ``get_project_summary``, ``get_architecture``,
-``get_conventions``, ``get_knowledge``, ``get_module_info``,
+``get_conventions``, ``get_knowledge``, ``get_health``, ``get_module_info``,
 ``get_dependencies``, ``get_critical_files``, ``explain_module``,
 ``analyze_impact``.
 """
@@ -76,6 +76,15 @@ def build_server(root: Path) -> FastMCP:
     def get_dependencies() -> dict[str, Any]:
         """List declared third-party dependencies with versions and dev flags."""
         return tools.get_dependencies(root)
+
+    @server.tool()
+    def get_health() -> dict[str, Any]:
+        """Report how much of the repo the graph actually resolved: overall
+        confidence, connected vs. isolated files, per-language coverage
+        (graphed vs. inventory-only), and warnings. Check this before trusting a
+        "safe to change" / "no consumers" verdict — low confidence means imports
+        may be unresolved and impact results under-report."""
+        return tools.get_health(root)
 
     @server.tool()
     def get_critical_files(limit: int = 10) -> dict[str, Any]:

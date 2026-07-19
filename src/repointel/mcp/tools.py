@@ -147,6 +147,23 @@ def analyze_impact(root: Path, target: str) -> dict:
     return report.model_dump()
 
 
+def get_health(root: Path) -> dict:
+    """Report how much of the repo the graph actually resolved.
+
+    A fail-loud trust signal: overall ``confidence``, how many graphed source
+    files are connected vs. isolated, per-language coverage (graphed vs.
+    inventory-only), and human-readable ``warnings``. Consult this before
+    trusting a "safe to change" / "no consumers" verdict — low confidence means
+    imports may be unresolved and those verdicts under-report.
+    """
+    ensure_memory(root)
+    repo = read_repo_summary(root)
+    assert repo is not None
+    if repo.coverage is None:
+        return {"confidence": "unknown", "warnings": [], "languages": []}
+    return repo.coverage.model_dump()
+
+
 def get_critical_files(root: Path, limit: int = 10) -> dict:
     """The most-depended-on files (highest import in-degree) — the risk hotspots."""
     ensure_memory(root)
@@ -188,6 +205,7 @@ __all__ = [
     "get_conventions",
     "get_critical_files",
     "get_dependencies",
+    "get_health",
     "get_knowledge",
     "get_module_info",
     "get_project_summary",
