@@ -180,6 +180,22 @@ def test_hotspots_without_git_reports_unavailable(tmp_path: Path) -> None:
     assert result["hotspots"] == []
 
 
+def test_get_feature_aggregates_subtree(tmp_path: Path) -> None:
+    """A feature spanning several dirs is reported as one aggregate view."""
+    _write(tmp_path, "pubspec.yaml", "name: shop\n")
+    _write(tmp_path, "lib/auth/data/auth_repo.dart", "class AuthRepo {}\n")
+    _write(tmp_path, "lib/auth/bloc/auth_bloc.dart", "class AuthBloc {}\n")
+    _write(tmp_path, "lib/auth/ui/login_page.dart", "class LoginPage {}\n")
+    _write(tmp_path, "lib/home/home_page.dart", "class HomePage {}\n")
+    feat = tools.get_feature(tmp_path, "auth")
+    assert feat["found"] is True
+    assert feat["root"] == "lib/auth"
+    assert set(feat["modules"]) == {"lib/auth/data", "lib/auth/bloc", "lib/auth/ui"}
+    assert feat["file_count"] == 3
+    assert feat["classes"] == 3
+    assert "lib/home" not in feat["modules"]
+
+
 def test_find_symbol_locates_definition_and_callers(tmp_path: Path) -> None:
     _project(tmp_path)
     result = tools.find_symbol(tmp_path, "make")
@@ -233,6 +249,7 @@ def test_server_registers_all_tools(tmp_path: Path) -> None:
         "get_knowledge",
         "get_health",
         "get_hotspots",
+        "get_feature",
         "get_module_info",
         "get_dependencies",
         "get_critical_files",

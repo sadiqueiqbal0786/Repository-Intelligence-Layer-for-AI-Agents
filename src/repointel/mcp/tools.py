@@ -248,6 +248,29 @@ def find_symbol(root: Path, name: str) -> dict:
     return {"symbol": name, "found": True, "definitions": definitions}
 
 
+def get_feature(root: Path, name: str) -> dict:
+    """Describe a whole feature subtree (e.g. "calendars"), not a single dir.
+
+    Aggregates every module under the named segment into one view: combined
+    size, its sub-modules, what it depends on outside itself, and who depends on
+    it. Use this when a feature spans bloc/data/presentation folders that
+    get_module_info would report as separate modules.
+    """
+    from repointel.context.feature import describe_feature
+
+    ensure_memory(root)
+    doc = read_modules(root)
+    assert doc is not None
+    result = describe_feature(doc.modules, name)
+    if result is None:
+        return {
+            "feature": name,
+            "found": False,
+            "available": sorted({seg for m in doc.modules for seg in m.path.split("/")}),
+        }
+    return result
+
+
 def what_tests(root: Path, target: str) -> dict:
     """Which test files cover ``target`` — the tests to run before/after editing
     it. Found via test files that import the source and by test-name convention
@@ -289,6 +312,7 @@ __all__ = [
     "explain_module",
     "find_symbol",
     "get_architecture",
+    "get_feature",
     "get_context",
     "get_conventions",
     "get_critical_files",

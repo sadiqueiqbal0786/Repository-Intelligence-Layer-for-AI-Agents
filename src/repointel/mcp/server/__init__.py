@@ -73,6 +73,14 @@ def build_server(root: Path) -> FastMCP:
         return tools.get_module_info(root, module)
 
     @server.tool()
+    def get_feature(name: str) -> dict[str, Any]:
+        """Describe a whole feature (e.g. "auth", "calendars") that spans several
+        directories: combined size, its sub-modules, what it depends on outside
+        itself, and who depends on it. Use this instead of get_module_info when a
+        feature is split across bloc/data/presentation folders."""
+        return tools.get_feature(root, name)
+
+    @server.tool()
     def get_dependencies() -> dict[str, Any]:
         """List declared third-party dependencies with versions and dev flags."""
         return tools.get_dependencies(root)
