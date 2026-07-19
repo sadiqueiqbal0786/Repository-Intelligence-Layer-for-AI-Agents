@@ -26,7 +26,7 @@ from pathlib import Path, PurePosixPath
 from repointel.context.memory import MemoryBundle, _assemble_bundle, build_memory
 from repointel.graph.builder import assemble_graph, parse_sources
 from repointel.plugins import default_registry
-from repointel.scanners import RepoContext, scan_repo
+from repointel.scanners import RepoContext, resolve_project_root, scan_repo
 from repointel.scanners.base import CODE_EXTENSIONS
 from repointel.storage.json import read_cache
 
@@ -56,7 +56,7 @@ def update_memory(root: Path) -> tuple[MemoryBundle, ChangeSet]:
     Returns the fresh :class:`MemoryBundle` (not yet persisted) and the
     :class:`ChangeSet` describing what moved.
     """
-    root = Path(root)
+    root = resolve_project_root(Path(root))
     previous = read_cache(root)
     if previous is None:
         return build_memory(root), ChangeSet(full_rebuild=True)

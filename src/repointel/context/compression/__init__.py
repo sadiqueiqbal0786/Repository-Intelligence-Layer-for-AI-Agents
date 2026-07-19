@@ -77,6 +77,7 @@ def build_context_pack(
 def context_pack(root: Path) -> ContextPack | None:
     """Load (building if needed) and assemble the context pack for ``root``."""
     from repointel.context.memory import build_memory, persist_memory
+    from repointel.scanners import resolve_project_root
     from repointel.storage.json import (
         read_architecture,
         read_conventions,
@@ -86,7 +87,7 @@ def context_pack(root: Path) -> ContextPack | None:
         read_repository,
     )
 
-    root = Path(root)
+    root = resolve_project_root(Path(root))
     if read_repo_summary(root) is None:
         persist_memory(build_memory(root), root)
 

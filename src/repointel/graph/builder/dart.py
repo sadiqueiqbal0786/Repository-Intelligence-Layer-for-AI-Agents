@@ -1,9 +1,10 @@
 """Dart source parsing via regular expressions.
 
 Dart has no standard-library parser available from Python, so we extract the
-high-signal, low-ambiguity constructs: import directives and class headers
-(``extends`` / ``implements`` / ``with``). Top-level functions are intentionally
-skipped — regex extraction of them is too noisy to hit the accuracy bar.
+high-signal, low-ambiguity constructs: import/export directives and class
+headers (``extends`` / ``implements`` / ``with``). Top-level functions are
+intentionally skipped — regex extraction of them is too noisy to hit the
+accuracy bar.
 """
 
 from __future__ import annotations
@@ -14,18 +15,58 @@ from pathlib import Path
 from repointel.graph.builder.parsed import ParsedClass, ParsedFile
 
 _IMPORT_RE = re.compile(r"""\bimport\s+['"]([^'"]+)['"]""")
+# Barrel files re-export other files (`export 'goal_model.dart';`). An export is
+# a real dependency edge — the barrel depends on what it re-exports — so
+# resolving it lets a consumer that imports the barrel reach the underlying
+# symbols transitively. Without this, changing a file that's only ever imported
+# via a barrel looks safe when it isn't.
+_EXPORT_RE = re.compile(r"""\bexport\s+['"]([^'"]+)['"]""")
 _PACKAGE_NAME_RE = re.compile(r"(?m)^name:\s*(\S+)")
 
 
+# Dirs that never hold a real Dart package and are expensive to walk. Local so
+# this module keeps no dependency on the scanners package.
+_IGNORED_DIRS: frozenset[str] = frozenset(
+    {
+        ".git", "node_modules", "build", "dist", ".venv", "venv", "__pycache__",
+        ".dart_tool", ".pub-cache", "Pods", ".symlinks", "ephemeral", ".fvm",
+        ".repointel", ".gradle", "vendor",
+    }
+)
+
+
+def dart_packages(root: Path) -> dict[str, str]:
+    """Map each Dart package ``name:`` → its ``lib/`` prefix (repo-relative,
+    posix), by finding EVERY ``pubspec.yaml`` — not just one at the root.
+
+    A Flutter app frequently lives in a subfolder (``app/pubspec.yaml``), so
+    assuming the manifest sits at the repo root left every ``package:app/…``
+    import unresolved and silently collapsed the whole import graph. Now
+    ``package:<pkg>/<sub>`` resolves against the lib/ dir of whichever pubspec
+    declares ``<pkg>`` (e.g. ``app/lib/<sub>``). Also handles monorepos.
+    """
+    packages: dict[str, str] = {}
+    root = Path(root)
+    for pubspec in root.rglob("pubspec.yaml"):
+        if any(part in _IGNORED_DIRS for part in pubspec.parts):
+            continue
+        try:
+            text = pubspec.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        match = _PACKAGE_NAME_RE.search(text)
+        if not match:
+            continue
+        rel_dir = pubspec.parent.relative_to(root).as_posix()
+        packages[match.group(1)] = "lib" if rel_dir in ("", ".") else f"{rel_dir}/lib"
+    return packages
+
+
 def dart_package_name(root: Path) -> str | None:
-    """Read the package ``name:`` from ``pubspec.yaml`` (used to resolve
-    ``package:`` imports back to ``lib/`` paths)."""
-    try:
-        text = (Path(root) / "pubspec.yaml").read_text(encoding="utf-8", errors="ignore")
-    except OSError:
-        return None
-    match = _PACKAGE_NAME_RE.search(text)
-    return match.group(1) if match else None
+    """Back-compat: the name of any one declared package, or None."""
+    return next(iter(dart_packages(root)), None)
+
+
 _CLASS_RE = re.compile(r"\b(?:abstract\s+)?class\s+(\w+)([^{]*)\{", re.MULTILINE)
 _GENERICS_RE = re.compile(r"<[^<>]*>")
 _NAME_RE = re.compile(r"[\w$.]+")
@@ -34,9 +75,14 @@ _NAME_RE = re.compile(r"[\w$.]+")
 class DartImportResolver:
     """Resolves Dart imports to repo-relative file paths."""
 
-    def __init__(self, files: set[str], package_name: str | None) -> None:
+    def __init__(self, files: set[str], packages: dict[str, str] | str | None) -> None:
         self.files = files
-        self.package_name = package_name
+        # Accept the new {name: lib_prefix} map; tolerate the old single-name
+        # form (→ prefix "lib") so existing callers/tests keep working.
+        if isinstance(packages, str):
+            self.packages: dict[str, str] = {packages: "lib"}
+        else:
+            self.packages = packages or {}
 
     def resolve(self, spec: str, current_path: str) -> str | None:
         if spec.startswith("dart:"):
@@ -46,8 +92,9 @@ class DartImportResolver:
             if "/" not in rest:
                 return None
             pkg, sub = rest.split("/", 1)
-            if self.package_name and pkg == self.package_name:
-                candidate = f"lib/{sub}"
+            lib_prefix = self.packages.get(pkg)
+            if lib_prefix:
+                candidate = f"{lib_prefix}/{sub}"
                 return candidate if candidate in self.files else None
             return None
 
@@ -68,9 +115,11 @@ class DartImportResolver:
 def parse_dart_file(path: str, source: str, resolver: DartImportResolver) -> ParsedFile | None:
     pf = ParsedFile(path=path, language="Dart")
 
-    for match in _IMPORT_RE.finditer(source):
-        if (target := resolver.resolve(match.group(1), path)) and target != path:
-            pf.imports.append(target)
+    # Imports AND exports both create a dependency edge on the referenced file.
+    for pattern in (_IMPORT_RE, _EXPORT_RE):
+        for match in pattern.finditer(source):
+            if (target := resolver.resolve(match.group(1), path)) and target != path:
+                pf.imports.append(target)
     pf.imports = sorted(set(pf.imports))
 
     for match in _CLASS_RE.finditer(source):

@@ -23,6 +23,7 @@ from repointel.models import (
     ModuleSummary,
     RepositoryInventory,
 )
+from repointel.scanners import resolve_project_root
 from repointel.storage.json import (
     read_graph,
     read_modules,
@@ -59,7 +60,7 @@ def explain(root: Path, target: str) -> ModuleExplanation | None:
 
     Builds memory on first use; returns ``None`` if no module matches.
     """
-    root = Path(root)
+    root = resolve_project_root(Path(root))
     if read_repo_summary(root) is None:
         persist_memory(build_memory(root), root)
 
@@ -73,7 +74,7 @@ def explain(root: Path, target: str) -> ModuleExplanation | None:
 
 def available_modules(root: Path) -> list[str]:
     """Module paths an :func:`explain` query can resolve against."""
-    doc = read_modules(Path(root))
+    doc = read_modules(resolve_project_root(Path(root)))
     return [m.path for m in doc.modules] if doc else []
 
 

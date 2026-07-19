@@ -81,8 +81,10 @@ class MemoryBundle:
 
 def build_memory(root: Path) -> MemoryBundle:
     """Run the full analysis pipeline and assemble the memory bundle."""
-    root = Path(root)
-    inventory = scan_repo(root)
+    inventory = scan_repo(Path(root))
+    # scan_repo may have resolved a nested project root (e.g. app/); adopt it so
+    # parsing, the graph, knowledge, and the cache all operate on the same path.
+    root = Path(inventory.path)
     parsed = parse_sources(root, inventory)
     graph = assemble_graph(inventory, parsed)
     return _assemble_bundle(root, inventory, graph, parsed)

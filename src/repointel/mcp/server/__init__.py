@@ -25,7 +25,11 @@ def build_server(root: Path) -> FastMCP:
     """Create a FastMCP server whose tools serve memory for ``root``."""
     from mcp.server.fastmcp import FastMCP
 
-    root = Path(root).resolve()
+    from repointel.scanners import resolve_project_root
+
+    # Resolve a nested project root once (e.g. app/) so every tool reads and
+    # writes the same .repointel/ location.
+    root = resolve_project_root(Path(root).resolve())
     server = FastMCP("repointel")
 
     @server.tool()

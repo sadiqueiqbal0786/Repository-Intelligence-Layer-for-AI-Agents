@@ -30,7 +30,8 @@ def graph(
 ) -> None:
     """Build the architecture graph (nodes + relationships) → .repointel/graph.json."""
     inventory = scan_repo(path)
-    arch = build_graph(path, inventory)
+    # scan_repo may resolve a nested project root; graph from the same path.
+    arch = build_graph(Path(inventory.path), inventory)
 
     if as_json:
         console.print_json(arch.model_dump_json(indent=2))

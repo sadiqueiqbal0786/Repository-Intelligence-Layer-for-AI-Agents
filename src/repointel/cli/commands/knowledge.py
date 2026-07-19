@@ -11,15 +11,17 @@ from rich.console import Console
 from repointel.context.knowledge import record_decision
 from repointel.context.memory import build_memory, persist_memory
 from repointel.models import Knowledge
+from repointel.scanners import resolve_project_root
 from repointel.storage.json import read_knowledge
 
 console = Console()
 
 
 def _load(path: Path) -> Knowledge:
+    path = resolve_project_root(Path(path))
     knowledge = read_knowledge(path)
     if knowledge is None:
-        persist_memory(build_memory(path), Path(path))
+        persist_memory(build_memory(path), path)
         knowledge = read_knowledge(path) or Knowledge()
     return knowledge
 
@@ -63,7 +65,7 @@ def decide(
     ),
 ) -> None:
     """Record an architecture decision into the durable knowledge layer."""
-    decision = record_decision(path, title, status=status, rationale=why)
+    decision = record_decision(resolve_project_root(path), title, status=status, rationale=why)
     console.print(
         f"[green]✓[/] Recorded decision [bold]{decision.id}[/] "
         f"([dim]{decision.status}[/]): {decision.title}"

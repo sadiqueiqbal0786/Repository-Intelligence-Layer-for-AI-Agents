@@ -143,3 +143,11 @@ def test_history_from_git(tmp_path: Path) -> None:
     assert history.contributor_count == 1
     assert history.top_contributors[0].name == "Tester"
     assert "Initial commit" in history.recent_commits
+
+    # A subdirectory of the repo still resolves history (git walks up to .git) —
+    # the monorepo case where the package root is below the git root.
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "x.py").write_text("x = 1\n", encoding="utf-8")
+    sub = project_history(tmp_path / "app")
+    assert sub.is_git is True
+    assert sub.total_commits == 1

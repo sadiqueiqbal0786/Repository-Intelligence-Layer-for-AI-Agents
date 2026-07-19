@@ -260,9 +260,17 @@ def infer_patterns(
 
 
 def project_history(root: Path) -> ProjectHistory:
-    """Derive project evolution from git; empty when ``root`` is not a git repo."""
+    """Derive project evolution from git; empty when ``root`` is not inside a git
+    work tree.
+
+    Uses ``git rev-parse`` rather than checking for a ``.git`` directory, so it
+    also works when ``root`` is a *subdirectory* of the repo (a monorepo package,
+    e.g. ``app/`` next to the repo-root ``.git``) and degrades gracefully when the
+    ``git`` binary is absent.
+    """
     root = Path(root)
-    if not (root / ".git").exists():
+    inside = _git(root, "rev-parse", "--is-inside-work-tree")
+    if inside is None or inside.strip() != "true":
         return ProjectHistory(is_git=False)
 
     total = _git(root, "rev-list", "--count", "HEAD")

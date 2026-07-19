@@ -78,6 +78,29 @@ CODE_EXTENSIONS: dict[str, str] = {
     ".exs": "Elixir",
 }
 
+# Machine-GENERATED source: real files on disk, but not hand-written, so they
+# must not count toward LOC, class/function inventory, the import graph, or
+# "large module = risk" signals — they inflate every metric and swamp the actual
+# code (a freezed-heavy Dart module reads as thousands of LOC of codegen). We
+# still list them as files, just not as *source*. Matched by the conventional
+# double-suffix each code generator uses.
+GENERATED_SUFFIXES: tuple[str, ...] = (
+    ".g.dart",          # json_serializable, and most Dart builders
+    ".freezed.dart",    # freezed
+    ".gr.dart",         # auto_route
+    ".config.dart",     # injectable
+    ".mocks.dart",      # mockito
+    ".pb.dart", ".pbenum.dart", ".pbjson.dart", ".pbserver.dart",  # protobuf
+    ".g.cs",            # C# source generators
+    "_pb2.py", "_pb2_grpc.py",  # python protobuf
+    ".pb.go",           # go protobuf
+)
+
+
+def is_generated_source(rel: str) -> bool:
+    """Whether ``rel`` is machine-generated code (by suffix convention)."""
+    return rel.endswith(GENERATED_SUFFIXES)
+
 
 class RepoContext:
     """Cached, read-only view over a repository root.

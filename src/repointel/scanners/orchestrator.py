@@ -15,10 +15,63 @@ from repointel.models import (
     Module,
     RepositoryInventory,
 )
-from repointel.scanners.base import CODE_EXTENSIONS, RepoContext
+from repointel.scanners.base import (
+    CODE_EXTENSIONS,
+    IGNORED_DIRS,
+    RepoContext,
+    is_generated_source,
+)
 
 if TYPE_CHECKING:
     from repointel.scanners.base import Scanner
+
+# Files that mark a directory as a project root, used to auto-detect a nested
+# project (e.g. a Flutter app under ``app/``) when the given path has none.
+_PROJECT_MARKERS: frozenset[str] = frozenset(
+    {
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "requirements.txt",
+        "Pipfile",
+        "pubspec.yaml",
+        "package.json",
+        "go.mod",
+        "Cargo.toml",
+        "pom.xml",
+        "build.gradle",
+        "build.gradle.kts",
+    }
+)
+
+
+def resolve_project_root(path: Path) -> Path:
+    """Resolve which directory to actually analyze.
+
+    Returns ``path`` unchanged when it already holds a project manifest (the
+    normal case — zero behavior change). When it doesn't, but exactly one
+    immediate non-ignored subdirectory does, returns that subdirectory — so
+    pointing RepoIntel at a repo whose real project lives one level down (e.g. a
+    Flutter app under ``app/``) just works. Stays at ``path`` when zero or
+    several subdirectories qualify (nothing to detect, or a true monorepo).
+    """
+    root = Path(path)
+    if _has_project_marker(root):
+        return root
+    try:
+        children = sorted(root.iterdir())
+    except OSError:
+        return root
+    candidates = [
+        child
+        for child in children
+        if child.is_dir() and child.name not in IGNORED_DIRS and _has_project_marker(child)
+    ]
+    return candidates[0] if len(candidates) == 1 else root
+
+
+def _has_project_marker(directory: Path) -> bool:
+    return any((directory / marker).exists() for marker in _PROJECT_MARKERS)
 
 # Well-known configuration files, matched by basename anywhere in the tree.
 CONFIG_FILENAMES: frozenset[str] = frozenset(
@@ -83,7 +136,7 @@ def _apply_fingerprint(ctx: RepoContext, fp: Fingerprint) -> None:
 
 def fingerprint_repo(root: Path) -> Fingerprint:
     """Analyze ``root`` and return its fingerprint (Phase 1)."""
-    ctx = RepoContext(Path(root))
+    ctx = RepoContext(resolve_project_root(Path(root)))
     fp = Fingerprint(path=str(ctx.root))
     _apply_fingerprint(ctx, fp)
     return fp
@@ -95,7 +148,7 @@ def scan_repo(root: Path, *, loc_cache: dict[str, int] | None = None) -> Reposit
     ``loc_cache`` (Phase 7) maps repo-relative paths to a previously counted line
     total for files known to be unchanged; those files skip the read + recount.
     """
-    ctx = RepoContext(Path(root))
+    ctx = RepoContext(resolve_project_root(Path(root)))
     fp = Fingerprint(path=str(ctx.root))
     _apply_fingerprint(ctx, fp)
 
@@ -103,6 +156,11 @@ def scan_repo(root: Path, *, loc_cache: dict[str, int] | None = None) -> Reposit
     total_loc = 0
     for rel, size in ctx.files():
         lang = CODE_EXTENSIONS.get(PurePosixPath(rel).suffix.lower())
+        # Generated code stays in the file list but counts as non-source: no
+        # language → not parsed, not in the graph, not in class/function counts;
+        # zero LOC → out of every size/risk metric.
+        if lang and is_generated_source(rel):
+            lang = None
         loc = 0
         if lang:
             if loc_cache is not None and rel in loc_cache:
@@ -150,7 +208,7 @@ def _discover_modules(ctx: RepoContext) -> list[Module]:
     by_dir: dict[str, dict[str, int]] = {}
     for rel, _ in ctx.files():
         lang = CODE_EXTENSIONS.get(PurePosixPath(rel).suffix.lower())
-        if not lang:
+        if not lang or is_generated_source(rel):
             continue
         parent = rel.rsplit("/", 1)[0] if "/" in rel else "."
         by_dir.setdefault(parent, {})
