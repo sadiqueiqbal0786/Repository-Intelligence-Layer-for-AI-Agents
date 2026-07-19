@@ -6,8 +6,8 @@ the rest of the package) never hard-requires the SDK.
 
 Tools: ``get_context``, ``get_project_summary``, ``get_architecture``,
 ``get_conventions``, ``get_knowledge``, ``get_health``, ``get_module_info``,
-``get_dependencies``, ``get_critical_files``, ``explain_module``,
-``analyze_impact``.
+``get_dependencies``, ``get_critical_files``, ``get_hotspots``,
+``explain_module``, ``analyze_impact``.
 """
 
 from __future__ import annotations
@@ -91,6 +91,14 @@ def build_server(root: Path) -> FastMCP:
         """List the most-depended-on files (highest import in-degree) — the
         files most risky to change."""
         return tools.get_critical_files(root, limit)
+
+    @server.tool()
+    def get_hotspots(limit: int = 10) -> dict[str, Any]:
+        """List risk hotspots: files ranked by git churn × import in-degree — the
+        ones that both change often and are widely depended on. A sharper "what's
+        risky here" signal than in-degree alone. Requires git history; test/spec
+        files are excluded."""
+        return tools.get_hotspots(root, limit)
 
     @server.tool()
     def explain_module(target: str) -> dict[str, Any]:

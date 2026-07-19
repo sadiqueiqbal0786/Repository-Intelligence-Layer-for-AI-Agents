@@ -293,6 +293,29 @@ def head_commit(root: Path) -> str | None:
     return out.strip() if out else None
 
 
+def file_churn(root: Path, max_commits: int = 1000) -> dict[str, int]:
+    """Map each file to how many of the last ``max_commits`` commits touched it.
+
+    Churn is the coupling/instability signal the import graph can't see: a file
+    edited in many commits is where change concentrates. Combined with import
+    in-degree it yields real risk hotspots (a heavily-imported file that also
+    churns a lot), better than in-degree alone. Paths are ``--relative`` to
+    ``root`` so a nested project (``app/``) reports its own files. Empty outside
+    a git work tree.
+    """
+    out = _git(
+        Path(root), "log", f"-n{max_commits}", "--relative", "--name-only", "--format="
+    )
+    if not out:
+        return {}
+    churn: dict[str, int] = {}
+    for line in out.splitlines():
+        path = line.strip()
+        if path:
+            churn[path] = churn.get(path, 0) + 1
+    return churn
+
+
 def changed_files_since(root: Path, commit: str) -> int | None:
     """How many tracked files differ between ``commit`` and the working tree
     (committed + uncommitted). ``None`` if the diff can't be computed."""
@@ -353,6 +376,7 @@ __all__ = [
     "build_knowledge",
     "changed_files_since",
     "discover_decisions",
+    "file_churn",
     "head_commit",
     "infer_patterns",
     "load_knowledge",

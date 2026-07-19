@@ -122,6 +122,32 @@ _SECRET_FILENAMES: frozenset[str] = frozenset(
 )
 
 
+# Directory segments and filename shapes that mark a file as test/spec code.
+_TEST_DIR_SEGMENTS: frozenset[str] = frozenset(
+    {"test", "tests", "integration_test", "test_driver", "__tests__", "spec", "specs"}
+)
+_TEST_NAME_SUFFIXES: tuple[str, ...] = (
+    ".mocks.dart", ".spec.ts", ".spec.js", ".test.ts", ".test.js", ".test.tsx",
+)
+
+
+def is_test_path(rel: str) -> bool:
+    """Whether ``rel`` is test/spec code rather than shippable source.
+
+    Catches both a test *directory* (``test/``, ``__tests__/`` …) and test
+    *filename* conventions (``foo_test.dart``, ``test_foo.py``, ``x.mocks.dart``,
+    ``x.spec.ts``) so test infrastructure doesn't pollute risk rankings.
+    """
+    parts = rel.split("/")
+    if any(seg in _TEST_DIR_SEGMENTS for seg in parts[:-1]):
+        return True
+    name = parts[-1].lower()
+    if name.endswith(_TEST_NAME_SUFFIXES):
+        return True
+    stem = name.rsplit(".", 1)[0]
+    return stem.startswith("test_") or stem.endswith("_test")
+
+
 def is_sensitive_path(rel: str) -> bool:
     """Whether ``rel`` likely holds secrets and must never be indexed/persisted.
 

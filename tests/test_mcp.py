@@ -158,6 +158,28 @@ def test_critical_files(tmp_path: Path) -> None:
     assert top["imported_by"] == 2
 
 
+def test_critical_files_excludes_test_infra(tmp_path: Path) -> None:
+    """A heavily-imported test helper must not crowd out the real core file."""
+    _project(tmp_path)
+    # A test helper imported by two test files — high in-degree, but test infra.
+    _write(tmp_path, "tests/fakes.py", "class Fake:\n    pass\n")
+    _write(tmp_path, "tests/test_a.py", "from tests.fakes import Fake\n")
+    _write(tmp_path, "tests/test_b.py", "from tests.fakes import Fake\n")
+    critical = tools.get_critical_files(tmp_path)
+    paths = [c["path"] for c in critical["critical_files"]]
+    assert "src/demo/models.py" in paths  # real core file is visible
+    assert all("test" not in p.split("/") for p in paths)  # no test dirs
+    assert not any(p.endswith("fakes.py") for p in paths)
+    assert critical["test_files_excluded"] >= 1
+
+
+def test_hotspots_without_git_reports_unavailable(tmp_path: Path) -> None:
+    _project(tmp_path)
+    result = tools.get_hotspots(tmp_path)
+    assert result["available"] is False
+    assert result["hotspots"] == []
+
+
 def test_get_health(tmp_path: Path) -> None:
     _project(tmp_path)
     health = tools.get_health(tmp_path)
@@ -177,6 +199,7 @@ def test_server_registers_all_tools(tmp_path: Path) -> None:
         "get_conventions",
         "get_knowledge",
         "get_health",
+        "get_hotspots",
         "get_module_info",
         "get_dependencies",
         "get_critical_files",

@@ -15,7 +15,9 @@ from repointel.context.explanation import available_modules, resolve_module
 from repointel.context.explanation import explain as explain_target
 from repointel.context.impact import analyze_impact as analyze_impact_target
 from repointel.context.impact import impact_candidates
+from repointel.context.knowledge import file_churn
 from repointel.context.memory import build_memory, persist_memory
+from repointel.scanners.base import is_test_path
 from repointel.storage.json import (
     read_architecture,
     read_conventions,
@@ -171,26 +173,73 @@ def get_health(root: Path) -> dict:
 
 
 def get_critical_files(root: Path, limit: int = 10) -> dict:
-    """The most-depended-on files (highest import in-degree) — the risk hotspots."""
+    """The most-depended-on production files (highest import in-degree).
+
+    Test/spec files are segmented out of the ranking so test infrastructure (a
+    heavily-shared fake or mock) can't crowd out the real core files an agent is
+    warning about. ``test_files_excluded`` reports how many were set aside, so
+    the filtering is never silent.
+    """
     ensure_memory(root)
     graph = read_graph(root)
     assert graph is not None
 
+    ranked = _rank_by_in_degree(graph)
+    prod = [(p, c) for p, c in ranked if not is_test_path(p)]
+    excluded = len(ranked) - len(prod)
+    return {
+        "critical_files": [{"path": path, "imported_by": count} for path, count in prod[:limit]],
+        "test_files_excluded": excluded,
+    }
+
+
+def get_hotspots(root: Path, limit: int = 10) -> dict:
+    """Risk hotspots = git churn × import in-degree.
+
+    A file that both changes often (churn) and is depended on by many others
+    (in-degree) is where risk concentrates — a better signal than in-degree
+    alone, which ranks a stable, heavily-shared file as high as a volatile one.
+    Requires git history; ``available: false`` when there is none. Test/spec
+    files are excluded.
+    """
+    ensure_memory(root)
+    graph = read_graph(root)
+    assert graph is not None
+
+    churn = file_churn(Path(root))
+    if not churn:
+        return {"available": False, "hotspots": [], "reason": "no git history"}
+
+    in_degree = dict(_rank_by_in_degree(graph))
+    scored = []
+    for path, commits in churn.items():
+        if is_test_path(path):
+            continue
+        imported_by = in_degree.get(path, 0)
+        score = commits * imported_by
+        if score > 0:
+            scored.append((path, score, commits, imported_by))
+    scored.sort(key=lambda item: (-item[1], -item[2], item[0]))
+    return {
+        "available": True,
+        "hotspots": [
+            {"path": p, "score": s, "commits": c, "imported_by": d}
+            for p, s, c, d in scored[:limit]
+        ],
+    }
+
+
+def _rank_by_in_degree(graph) -> list[tuple[str, int]]:
+    """(path, incoming-imports) for every file, most-depended-on first."""
     in_degree: dict[str, int] = {}
     for edge in graph.edges:
         if edge.kind == "imports":
             in_degree[edge.target] = in_degree.get(edge.target, 0) + 1
     id_to_path = {n.id: n.path for n in graph.nodes if n.path}
-
-    ranked = sorted(
+    return sorted(
         ((id_to_path[nid], count) for nid, count in in_degree.items() if nid in id_to_path),
         key=lambda item: (-item[1], item[0]),
     )
-    return {
-        "critical_files": [
-            {"path": path, "imported_by": count} for path, count in ranked[:limit]
-        ]
-    }
 
 
 def _find_module(modules: list, query: str):
@@ -212,6 +261,7 @@ __all__ = [
     "get_critical_files",
     "get_dependencies",
     "get_health",
+    "get_hotspots",
     "get_knowledge",
     "get_module_info",
     "get_project_summary",
