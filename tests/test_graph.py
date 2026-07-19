@@ -219,6 +219,62 @@ def test_generated_dart_files_are_not_graph_nodes(tmp_path: Path) -> None:
     assert not any(c.startswith("_$") for c in class_names)
 
 
+def test_dart_functions_and_methods_parsed(tmp_path: Path) -> None:
+    """Typed top-level functions and class methods become function nodes; bare
+    calls and control-flow do not (precision-first extraction)."""
+    _write(tmp_path, "pubspec.yaml", "name: shop\n")
+    _write(
+        tmp_path,
+        "lib/counter.dart",
+        "int add(int a, int b) => a + b;\n\n"
+        "Future<void> loadAll() async {\n"
+        "  if (add(1, 2) > 0) {\n"
+        "    print('go');\n"
+        "  }\n"
+        "  for (var i = 0; i < 3; i++) {}\n"
+        "}\n\n"
+        "class Counter {\n"
+        "  int value = 0;\n"
+        "  void increment() {\n"
+        "    value = add(value, 1);\n"
+        "  }\n"
+        "  String get label => 'counter';\n"
+        "}\n",
+    )
+    g = _graph(tmp_path)
+    func_names = {n.name for n in g.nodes if n.kind == "function"}
+
+    # Real declarations, top-level and method (qualified).
+    assert "add" in func_names
+    assert "loadAll" in func_names
+    assert "Counter.increment" in func_names
+    assert "Counter.label" in func_names
+    # Control-flow keywords and the add() call inside loadAll must NOT be nodes.
+    assert "if" not in func_names
+    assert "for" not in func_names
+    assert "print" not in func_names
+    # The method is contained by its class, not the file.
+    assert function_id("lib/counter.dart", "Counter.increment") in {
+        e.target for e in g.edges if e.source == class_id("lib/counter.dart", "Counter")
+    }
+
+
+def test_dart_ignores_declarations_inside_strings_and_comments(tmp_path: Path) -> None:
+    """Function-like text in a string literal or comment is not a declaration."""
+    _write(tmp_path, "pubspec.yaml", "name: shop\n")
+    _write(
+        tmp_path,
+        "lib/noise.dart",
+        "// void commented(int x) {}\n"
+        "String real() => 'void fake(int y) => y;';\n",
+    )
+    g = _graph(tmp_path)
+    func_names = {n.name for n in g.nodes if n.kind == "function"}
+    assert "real" in func_names
+    assert "commented" not in func_names
+    assert "fake" not in func_names
+
+
 def test_graph_storage_round_trip(tmp_path: Path) -> None:
     _python_project(tmp_path)
     g = _graph(tmp_path)

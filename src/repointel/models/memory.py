@@ -73,11 +73,18 @@ class NamingConventions(BaseModel):
     Each value is a casing label (e.g. ``"snake_case"``, ``"PascalCase"``,
     ``"camelCase"``), ``"mixed"`` when no style holds a clear majority, or
     ``None`` when there was nothing to measure.
+
+    ``classes``/``functions`` report the **primary language's** convention (so a
+    Dart project reads ``camelCase`` functions, not a language-agnostic
+    ``snake_case``). ``*_by_language`` carry the full per-language breakdown for
+    polyglot repos.
     """
 
     files: str | None = None
     classes: str | None = None
     functions: str | None = None
+    classes_by_language: dict[str, str] = Field(default_factory=dict)
+    functions_by_language: dict[str, str] = Field(default_factory=dict)
 
 
 class Conventions(BaseModel):
